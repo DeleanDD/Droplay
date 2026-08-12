@@ -1,0 +1,41 @@
+name: Publish APK
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Restore release key
+        env:
+          DROPLAY_KEYSTORE_B64: ${{ secrets.DROPLAY_KEYSTORE_B64 }}
+        run: |
+          test -n "$DROPLAY_KEYSTORE_B64" || (echo "Configure os secrets de assinatura descritos no README" && exit 1)
+          echo "$DROPLAY_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/droplay.keystore"
+      - name: Test and build optimized APK
+        env:
+          DROPLAY_KEYSTORE_PATH: ${{ runner.temp }}/droplay.keystore
+          DROPLAY_STORE_PASSWORD: ${{ secrets.DROPLAY_STORE_PASSWORD }}
+          DROPLAY_KEY_ALIAS: ${{ secrets.DROPLAY_KEY_ALIAS }}
+          DROPLAY_KEY_PASSWORD: ${{ secrets.DROPLAY_KEY_PASSWORD }}
+        run: ./gradlew testDebugUnitTest assembleRelease
+      - name: Name package
+        run: cp app/build/outputs/apk/release/app-release.apk "Droplay-${GITHUB_REF_NAME}.apk"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "Droplay-${GITHUB_REF_NAME}.apk" --generate-notes --title "DROPLAY ${GITHUB_REF_NAME}"

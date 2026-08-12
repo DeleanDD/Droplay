@@ -1,0 +1,45 @@
+# DROPLAY
+
+DROPLAY é um player público e independente para Android TV. Ele reproduz fontes que o próprio usuário possui autorização para acessar e **não inclui, vende, revende ou ativa conteúdo**.
+
+## Recursos
+
+- login por Xtream Codes (`servidor`, `usuário`, `senha`);
+- importação de listas M3U/M3U8 por URL;
+- canais ao vivo, filmes, séries e episódios;
+- EPG XMLTV nativo (inclusive `.gz`), quando informado pela fonte;
+- múltiplas faixas de áudio e legendas expostas pelo stream;
+- avanço/retrocesso por D-pad, barra rápida e teclas de mídia;
+- favoritos, histórico e retomada local;
+- interface 10-foot premium, criada para controle remoto;
+- HLS, DASH e mídia progressiva via AndroidX Media3;
+- release otimizado com R8 e remoção de recursos não usados.
+
+## Gerar o APK
+
+Requisitos: JDK 17 e Android SDK 36.
+
+```bash
+./gradlew assembleDebug
+```
+
+O APK será criado em `app/build/outputs/apk/debug/app-debug.apk`.
+
+Para uma versão de distribuição assinada, configure uma keystore local (nunca envie as senhas ao GitHub), adicione a configuração de assinatura ao Gradle e execute `./gradlew assembleRelease`.
+
+## Download pelo GitHub
+
+1. Crie um repositório e envie este projeto.
+2. A aba **Actions** produzirá um artefato `droplay-debug-apk` em cada push.
+3. Antes da primeira publicação, configure os Secrets do repositório: `DROPLAY_KEYSTORE_B64` (keystore codificada em Base64), `DROPLAY_STORE_PASSWORD`, `DROPLAY_KEY_ALIAS` e `DROPLAY_KEY_PASSWORD`.
+4. Crie uma tag, por exemplo `git tag v1.0.0 && git push origin v1.0.0`. O workflow publicará uma Release com o APK otimizado e assinado automaticamente.
+
+Exemplo de endereço final: `https://github.com/SEU_USUARIO/Droplay/releases/latest`.
+
+## Privacidade e uso responsável
+
+Credenciais e preferências ficam no armazenamento privado do aplicativo. O DROPLAY apenas conecta o aparelho diretamente à fonte indicada. Use somente listas e serviços que você tenha direito de acessar; a disponibilidade e a legalidade do conteúdo são responsabilidade do provedor e do usuário.
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE).
