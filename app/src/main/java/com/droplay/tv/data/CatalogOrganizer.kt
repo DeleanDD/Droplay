@@ -38,11 +38,14 @@ object CatalogOrganizer {
 
     fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): PreparedCatalog {
         val allowed = visibleEntries(entries, showAdult, showCinema)
-        val variants = allowed.asSequence().filter { it.kind == MediaKind.MOVIE }
-            .groupBy(::movieVariantKey)
+        val groupedMovies = allowed.asSequence().filter { it.kind == MediaKind.MOVIE }.groupBy(::movieVariantKey)
+        val variants = groupedMovies
             .mapValues { (_, items) -> items.distinctBy(::isSubtitled) }
             .filterValues { it.size > 1 }
-        val visible = collapseMovieVariants(allowed)
+        val selectedMovieIds = groupedMovies.values.asSequence()
+            .map { items -> items.firstOrNull { !isSubtitled(it) } ?: items.first() }
+            .mapTo(HashSet(), MediaEntry::id)
+        val visible = allowed.filter { it.kind != MediaKind.MOVIE || it.id in selectedMovieIds }
         val movies = visible.filter { it.kind == MediaKind.MOVIE }
         val series = visible.filter { it.kind == MediaKind.SERIES }
         val live = visible.filter { it.kind == MediaKind.LIVE }

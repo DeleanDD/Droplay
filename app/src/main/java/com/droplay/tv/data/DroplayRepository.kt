@@ -75,7 +75,14 @@ class DroplayRepository(context: Context) {
         return counts
     }
 
-    fun load(source: PlaylistSource, save: Boolean = true, force: Boolean = false): Catalog {
+    fun cached(source: PlaylistSource): Catalog? = cachedCatalog(source, requireFresh = false)
+
+    suspend fun load(
+        source: PlaylistSource,
+        save: Boolean = true,
+        force: Boolean = false,
+        progress: (String) -> Unit = {},
+    ): Catalog {
         if (!force) cachedCatalog(source, requireFresh = true)?.let { return it }
 
         return try {
@@ -83,13 +90,15 @@ class DroplayRepository(context: Context) {
             val epgUrl: String?
             when (source) {
                 is PlaylistSource.M3u -> {
+                    progress("Baixando a lista M3U Plus…")
                     downloadPlaylist(m3uPlusUrl(source.url))
+                    progress("Lendo a lista de reprodução…")
                     val parsed = rawPlaylist.openRead().bufferedReader().use(M3uParser::parseCatalog)
                     entries = parsed.entries
                     epgUrl = parsed.epgUrl
                 }
                 is PlaylistSource.Xtream -> {
-                    entries = XtreamClient(source).load()
+                    entries = XtreamClient(source).load(progress)
                     val base = source.server.trim().trimEnd('/')
                     epgUrl = "$base/xmltv.php?username=${source.username}&password=${source.password}"
                 }

@@ -29,6 +29,7 @@ data class AppState(
 
 class DroplayViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DroplayRepository(application)
+    private var loadGeneration = 0
     private val _state = MutableStateFlow(AppState(
         favorites = repository.favorites(), history = repository.history(),
         refreshInterval = repository.refreshInterval(), lastRefreshMs = repository.lastRefresh(),
@@ -40,19 +41,63 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     init { repository.savedSource()?.let { connect(it) } }
 
     fun connect(source: PlaylistSource, force: Boolean = false) {
-        val message = if (force || repository.isRefreshDue(source)) "Atualizando sua biblioteca…" else "Abrindo biblioteca salva…"
+        val generation = ++loadGeneration
+        val refreshDue = force || repository.isRefreshDue(source)
+        val message = if (refreshDue) "Procurando uma biblioteca salva…" else "Abrindo biblioteca salva…"
         _state.value = _state.value.copy(loading = true, loadingMessage = message, error = null)
         viewModelScope.launch {
             val preferences = _state.value
-            runCatching { withContext(Dispatchers.IO) {
-                val catalog = repository.load(source, force = force)
-                catalog to CatalogOrganizer.prepare(catalog.entries, preferences.showAdultContent, preferences.showCinemaContent)
-            } }.onSuccess { (catalog, prepared) ->
-                    _state.value = _state.value.copy(source = source, catalog = catalog, preparedCatalog = prepared,
-                        loading = false, lastRefreshMs = repository.lastRefresh())
-                    refreshEpgInBackground(source)
+            val cached = withContext(Dispatchers.IO) { repository.cached(source) }
+            if (generation != loadGeneration) return@launch
+
+            if (cached != null) {
+                _state.value = _state.value.copy(loadingMessage = "Organizando biblioteca salva…")
+                val prepared = withContext(Dispatchers.Default) {
+                    CatalogOrganizer.prepare(cached.entries, preferences.showAdultContent, preferences.showCinemaContent)
                 }
-                .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Falha ao carregar a lista.") }
+                if (generation != loadGeneration) return@launch
+                _state.value = _state.value.copy(
+                    source = source, catalog = cached, preparedCatalog = prepared,
+                    loading = false, lastRefreshMs = repository.lastRefresh(), error = null,
+                )
+                if (!refreshDue) {
+                    refreshEpgInBackground(source)
+                    return@launch
+                }
+            }
+
+            if (cached == null) _state.value = _state.value.copy(loading = true, loadingMessage = "Conectando ao servidor…")
+            runCatching {
+                val catalog = withContext(Dispatchers.IO) {
+                    repository.load(source, force = refreshDue || cached != null) { step ->
+                        if (cached == null && generation == loadGeneration) {
+                            _state.value = _state.value.copy(loadingMessage = step)
+                        }
+                    }
+                }
+                if (cached == null) _state.value = _state.value.copy(loadingMessage = "Organizando sua biblioteca…")
+                val prepared = withContext(Dispatchers.Default) {
+                    CatalogOrganizer.prepare(catalog.entries, preferences.showAdultContent, preferences.showCinemaContent)
+                }
+                catalog to prepared
+            }.onSuccess { (catalog, prepared) ->
+                if (generation != loadGeneration) return@onSuccess
+                _state.value = _state.value.copy(
+                    source = source, catalog = catalog, preparedCatalog = prepared,
+                    loading = false, lastRefreshMs = repository.lastRefresh(), error = null,
+                )
+                refreshEpgInBackground(source)
+            }.onFailure { error ->
+                if (generation != loadGeneration) return@onFailure
+                if (cached == null) {
+                    _state.value = _state.value.copy(
+                        source = null, catalog = Catalog(), preparedCatalog = PreparedCatalog(), loading = false,
+                        error = friendlyLoadError(error),
+                    )
+                } else {
+                    _state.value = _state.value.copy(loading = false, error = "Não foi possível atualizar agora. A biblioteca salva continua disponível.")
+                }
+            }
         }
     }
 
@@ -117,9 +162,17 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
         _state.value = _state.value.copy(history = repository.history())
     }
     fun dismissError() { _state.value = _state.value.copy(error = null) }
-    fun disconnect() { repository.clearSource(); _state.value = AppState(
+    fun disconnect() { loadGeneration++; repository.clearSource(); _state.value = AppState(
         favorites = repository.favorites(), history = repository.history(), refreshInterval = repository.refreshInterval(),
         showAdultContent = repository.showAdultContent(), showCinemaContent = repository.showCinemaContent(),
         contentSort = repository.contentSort(), playCounts = repository.playCounts(),
     ) }
+
+    private fun friendlyLoadError(error: Throwable): String = when (error) {
+        is java.net.SocketTimeoutException -> "O servidor demorou demais para responder. Confira a conexão e tente novamente."
+        is java.net.ConnectException, is java.net.UnknownHostException -> "Não foi possível conectar ao servidor. Confira o endereço e a conexão da TV."
+        else -> error.message?.takeIf {
+            !it.contains("username=", ignoreCase = true) && !it.contains("password=", ignoreCase = true)
+        } ?: "Não foi possível carregar a biblioteca. Confira os dados de acesso e tente novamente."
+    }
 }

@@ -19,7 +19,8 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 - interface 10-foot premium, criada para controle remoto;
 - HLS, DASH, RTSP, mídia progressiva e fallback entre codecs do aparelho via AndroidX Media3;
 - H.265/HEVC, H.264, VP8, VP9 e AV1 quando suportados pelo hardware/Android da TV;
-- cache local com atualização diária padrão, semanal, mensal ou em toda abertura;
+- cache local aberto antes de qualquer atualização, com atualização diária padrão, semanal, mensal ou em toda abertura;
+- canais, filmes e séries Xtream baixados em paralelo para reduzir o tempo da primeira importação;
 - cache incremental e catálogo pré-organizado para navegação rápida mesmo em listas muito grandes;
 - proteção +18 por senha, ocultação opcional de filmes `CINEMA` e ordenação por ano, A-Z ou mais assistidos;
 - áreas Infantil e Nacional, categorias consolidadas, busca integrada e Minha Lista organizada por tipo;

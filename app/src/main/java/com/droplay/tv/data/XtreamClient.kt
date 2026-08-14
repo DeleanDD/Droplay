@@ -6,6 +6,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStreamReader
 import java.net.URLEncoder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 class XtreamClient(source: PlaylistSource.Xtream) {
     private val base = source.server.trim().trimEnd('/')
@@ -19,32 +23,44 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         require(auth == 1) { "Acesso Xtream recusado pelo servidor." }
     }
 
-    fun load(): List<MediaEntry> {
+    suspend fun load(progress: (String) -> Unit = {}): List<MediaEntry> = coroutineScope {
+        progress("Validando o acesso Xtream…")
         validate()
-        val liveCategories = categories("get_live_categories")
-        val vodCategories = categories("get_vod_categories")
-        val seriesCategories = categories("get_series_categories")
-        return buildList {
+        progress("Carregando categorias Xtream…")
+        val liveCategories = async(Dispatchers.IO) { categories("get_live_categories") }
+        val vodCategories = async(Dispatchers.IO) { categories("get_vod_categories") }
+        val seriesCategories = async(Dispatchers.IO) { categories("get_series_categories") }
+        progress("Baixando canais, filmes e séries…")
+        listOf(
+            async(Dispatchers.IO) { buildList {
+                val categories = liveCategories.await()
             forEachItem("get_live_streams") { o ->
                 val id = o.optString("stream_id")
                 add(MediaEntry("live:$id", o.optString("name", "Canal"), "$base/live/$user/$pass/$id.ts", MediaKind.LIVE,
-                    liveCategories[o.optString("category_id")] ?: "Ao vivo", o.optString("stream_icon").takeIf(String::isNotBlank), o.optString("epg_channel_id").takeIf(String::isNotBlank)))
+                    categories[o.optString("category_id")] ?: "Ao vivo", o.optString("stream_icon").takeIf(String::isNotBlank), o.optString("epg_channel_id").takeIf(String::isNotBlank)))
             }
+            } },
+            async(Dispatchers.IO) { buildList {
+                val categories = vodCategories.await()
             forEachItem("get_vod_streams") { o ->
                 val id = o.optString("stream_id"); val ext = o.optString("container_extension", "mp4")
                 add(MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
-                    vodCategories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
+                    categories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
                     description = descriptionFrom(o), year = yearFrom(o),
                     addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o)))
             }
+            } },
+            async(Dispatchers.IO) { buildList {
+                val categories = seriesCategories.await()
             forEachItem("get_series") { o ->
                 val id = o.optString("series_id")
                 add(MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
-                    seriesCategories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
+                    categories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
                     description = descriptionFrom(o), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
                     year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") })))
             }
-        }
+            } },
+        ).awaitAll().flatten()
     }
 
     fun episodes(seriesId: String): List<MediaEntry> {
