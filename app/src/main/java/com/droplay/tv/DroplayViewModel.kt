@@ -15,7 +15,7 @@ data class AppState(
     val catalog: Catalog = Catalog(),
     val favorites: Set<String> = emptySet(),
     val history: List<WatchRecord> = emptyList(),
-    val refreshInterval: RefreshInterval = RefreshInterval.DAILY,
+    val refreshInterval: RefreshInterval = RefreshInterval.WEEKLY,
     val lastRefreshMs: Long = 0L,
     val showAdultContent: Boolean = false,
     val showCinemaContent: Boolean = false,

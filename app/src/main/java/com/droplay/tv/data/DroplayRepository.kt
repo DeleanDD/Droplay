@@ -39,8 +39,8 @@ class DroplayRepository(context: Context) {
     }
 
     fun refreshInterval(): RefreshInterval = runCatching {
-        RefreshInterval.valueOf(prefs.getString("refresh_interval", RefreshInterval.DAILY.name).orEmpty())
-    }.getOrDefault(RefreshInterval.DAILY)
+        RefreshInterval.valueOf(prefs.getString("refresh_interval", RefreshInterval.WEEKLY.name).orEmpty())
+    }.getOrDefault(RefreshInterval.WEEKLY)
 
     fun setRefreshInterval(interval: RefreshInterval) {
         prefs.edit().putString("refresh_interval", interval.name).apply()
@@ -229,13 +229,13 @@ class DroplayRepository(context: Context) {
     )
 
     private fun subtitlesToJson(tracks: List<SubtitleTrack>) = JSONArray().apply {
-        tracks.forEach { put(JSONObject().put("url", it.url).put("label", it.label).put("language", it.language)) }
+        tracks.forEach { put(JSONObject().put("url", it.url).put("label", it.label).put("language", it.language).put("mimeType", it.mimeType)) }
     }
 
     private fun subtitlesFromJson(array: JSONArray?): List<SubtitleTrack> = if (array == null) emptyList() else
         (0 until array.length()).mapNotNull { index ->
             array.optJSONObject(index)?.let { item ->
-                item.textOrNull("url")?.let { SubtitleTrack(it, item.textOrNull("label"), item.textOrNull("language")) }
+                item.textOrNull("url")?.let { SubtitleTrack(it, item.textOrNull("label"), item.textOrNull("language"), item.textOrNull("mimeType")) }
             }
         }
 

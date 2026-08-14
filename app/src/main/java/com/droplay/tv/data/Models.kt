@@ -15,6 +15,7 @@ data class SubtitleTrack(
     val url: String,
     val label: String? = null,
     val language: String? = null,
+    val mimeType: String? = null,
 )
 
 data class MediaEntry(

@@ -2,7 +2,6 @@ package com.droplay.tv.ui
 
 import android.view.KeyEvent
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
@@ -35,6 +34,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -57,9 +57,8 @@ fun PlayerScreen(
     onProgress: (Long, Long) -> Unit,
     onBack: () -> Unit,
 ) {
-    BackHandler(onBack = onBack)
     val context = LocalContext.current
-    val player = remember(media.url, media.subtitles) {
+    val player = remember(media.url) {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -67,15 +66,7 @@ fun PlayerScreen(
             .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
             .build()
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
-            val item = MediaItem.Builder().setUri(media.url)
-                .setSubtitleConfigurations(media.subtitles.map { subtitle ->
-                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
-                        .setMimeType(subtitleMimeType(subtitle.url))
-                        .setLabel(subtitle.label)
-                        .setLanguage(subtitle.language)
-                        .build()
-                }).build()
-            setMediaItem(item); prepare()
+            setMediaItem(playerMediaItem(media)); prepare()
             if (resumeAt > 0) seekTo(resumeAt)
             setHandleAudioBecomingNoisy(true)
             playWhenReady = true
@@ -90,6 +81,9 @@ fun PlayerScreen(
     var panel by remember { mutableStateOf<TrackPanel?>(null) }
     var interaction by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var ghost by remember { mutableStateOf<String?>(null) }
+    var activeExternalSubtitle by remember(media.url) { mutableStateOf<com.droplay.tv.data.SubtitleTrack?>(null) }
+    var tracksRevision by remember { mutableIntStateOf(0) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     val rootFocus = remember { FocusRequester() }
     val backFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
@@ -104,11 +98,37 @@ fun PlayerScreen(
         if (player.isPlaying) { player.pause(); ghost = "Ⅱ" } else { player.play(); ghost = "▶" }
         wake()
     }
+    fun selectExternalSubtitle(track: com.droplay.tv.data.SubtitleTrack?) {
+        val resumePosition = player.currentPosition.coerceAtLeast(0)
+        val resumePlayback = player.playWhenReady
+        activeExternalSubtitle = track
+        playbackError = null
+        player.setMediaItem(playerMediaItem(media, track), resumePosition)
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, track == null)
+            .build()
+        player.prepare()
+        player.playWhenReady = resumePlayback
+    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(value: Boolean) { playing = value }
             override fun onPlaybackStateChanged(state: Int) { buffering = state == Player.STATE_BUFFERING }
+            override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                buffering = false
+                if (activeExternalSubtitle != null) {
+                    val resumePosition = player.currentPosition.coerceAtLeast(0)
+                    activeExternalSubtitle = null
+                    ghost = "CC indisponível"
+                    player.setMediaItem(playerMediaItem(media), resumePosition)
+                    player.prepare()
+                    player.playWhenReady = true
+                } else {
+                    playbackError = "Não foi possível reproduzir este conteúdo (${error.errorCodeName})."
+                }
+            }
         }
         player.addListener(listener)
         onDispose {
@@ -151,7 +171,6 @@ fun PlayerScreen(
                         if (controlFocused) false else { togglePlayback(); true }
                     KeyEvent.KEYCODE_DPAD_UP -> { wake(); requestedFocus = ControlTarget.BACK; true }
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); requestedFocus = ControlTarget.ACTIONS; true }
-                    KeyEvent.KEYCODE_BACK -> { onBack(); true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(30_000); true }
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { seek(-30_000); true }
                     else -> false
@@ -182,7 +201,11 @@ fun PlayerScreen(
                             Spacer(Modifier.weight(1f))
                             Text(formatTime(duration), fontSize = 11.sp)
                         }
-                    } else Text("●  AO VIVO", color = Coral, fontSize = 12.sp)
+                    } else if (media.kind == com.droplay.tv.data.MediaKind.LIVE) {
+                        Text("●  AO VIVO", color = Coral, fontSize = 12.sp)
+                    } else {
+                        Text("Preparando reprodução…", color = Muted, fontSize = 12.sp)
+                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
                         Spacer(Modifier.weight(1f))
@@ -195,8 +218,28 @@ fun PlayerScreen(
                 }
             }
         }
+        playbackError?.let { message ->
+            Surface(Modifier.align(Alignment.Center).widthIn(max = 520.dp), color = Color(0xEE10152E), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(message, color = Color.White)
+                    Button(onClick = {
+                        playbackError = null
+                        player.setMediaItem(playerMediaItem(media), player.currentPosition.coerceAtLeast(0))
+                        player.prepare()
+                        player.playWhenReady = true
+                    }) { Text("Tentar novamente") }
+                }
+            }
+        }
     }
-    panel?.let { TrackDialog(player, media, it, onDismiss = { panel = null; controlFocused = false; wake() }) }
+    panel?.let {
+        TrackDialog(
+            player = player, media = media, panel = it, revision = tracksRevision,
+            activeExternal = activeExternalSubtitle,
+            selectExternal = ::selectExternalSubtitle,
+            onDismiss = { panel = null; controlFocused = false; wake() },
+        )
+    }
 }
 
 @Composable private fun PlayerBackControl(requester: FocusRequester, focus: (Boolean) -> Unit, click: () -> Unit) {
@@ -241,15 +284,29 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
 }
 
 @OptIn(UnstableApi::class)
-@Composable private fun TrackDialog(player: ExoPlayer, media: MediaEntry, panel: TrackPanel, onDismiss: () -> Unit) {
+@Composable private fun TrackDialog(
+    player: ExoPlayer,
+    media: MediaEntry,
+    panel: TrackPanel,
+    revision: Int,
+    activeExternal: com.droplay.tv.data.SubtitleTrack?,
+    selectExternal: (com.droplay.tv.data.SubtitleTrack?) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val type = if (panel == TrackPanel.AUDIO) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
-    val choices = player.currentTracks.groups.filter { it.type == type }.flatMap { group ->
-        (0 until group.length).map { index -> Triple(group, index, group.getTrackFormat(index)) }
+    val choices = remember(player, panel, revision) {
+        player.currentTracks.groups.filter { it.type == type }.flatMap { group ->
+            (0 until group.length).map { index -> Triple(group, index, group.getTrackFormat(index)) }
+        }
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (panel == TrackPanel.AUDIO) "Faixa de áudio" else "Legendas") }, text = {
         Column(Modifier.widthIn(min = 420.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            if (panel == TrackPanel.SUBTITLES) TextButton(onClick = { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, true).build(); onDismiss() }) { Text("Desativadas") }
-            if (choices.isEmpty()) Text(
+            if (panel == TrackPanel.SUBTITLES) TextButton(onClick = {
+                if (activeExternal != null) selectExternal(null)
+                else player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, true).build()
+                onDismiss()
+            }) { Text("Desativadas") }
+            if (choices.isEmpty() && (panel != TrackPanel.SUBTITLES || media.subtitles.isEmpty())) Text(
                 if (panel == TrackPanel.SUBTITLES && com.droplay.tv.data.CatalogOrganizer.isSubtitled(media))
                     "Esta versão é legendada, mas a legenda está incorporada à imagem e não pode ser ativada ou desativada."
                 else "Nenhuma faixa disponível neste conteúdo.",
@@ -262,14 +319,43 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
                         .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index)).build(); onDismiss()
                 }, Modifier.fillMaxWidth()) { Text(label, Modifier.fillMaxWidth()) }
             }
+            if (panel == TrackPanel.SUBTITLES && media.subtitles.isNotEmpty()) {
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                Text("Legendas fornecidas pelo servidor", color = Muted, fontSize = 12.sp)
+                media.subtitles.forEachIndexed { index, subtitle ->
+                    val label = listOfNotNull(subtitle.label, subtitle.language?.uppercase()).distinct().joinToString(" · ")
+                        .ifBlank { "Legenda externa ${index + 1}" }
+                    TextButton(onClick = { selectExternal(subtitle); onDismiss() }, Modifier.fillMaxWidth()) {
+                        Text(if (subtitle == activeExternal) "$label  •  ATIVA" else label, Modifier.fillMaxWidth())
+                    }
+                }
+            }
         }
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
 }
 
-private fun subtitleMimeType(url: String): String = when (url.substringBefore('?').substringAfterLast('.').lowercase()) {
-    "vtt" -> MimeTypes.TEXT_VTT
-    "ass", "ssa" -> MimeTypes.TEXT_SSA
-    "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
+private fun playerMediaItem(media: MediaEntry, externalSubtitle: com.droplay.tv.data.SubtitleTrack? = null): MediaItem {
+    val builder = MediaItem.Builder().setUri(media.url)
+    if (externalSubtitle != null) {
+        builder.setSubtitleConfigurations(listOf(
+            MediaItem.SubtitleConfiguration.Builder(Uri.parse(externalSubtitle.url))
+                .setMimeType(subtitleMimeType(externalSubtitle))
+                .setLabel(externalSubtitle.label)
+                .setLanguage(externalSubtitle.language)
+                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                .build()
+        ))
+    }
+    return builder.build()
+}
+
+private fun subtitleMimeType(track: com.droplay.tv.data.SubtitleTrack): String = when {
+    track.mimeType?.contains("vtt", true) == true -> MimeTypes.TEXT_VTT
+    track.mimeType?.contains("ass", true) == true || track.mimeType?.contains("ssa", true) == true -> MimeTypes.TEXT_SSA
+    track.mimeType?.contains("ttml", true) == true -> MimeTypes.APPLICATION_TTML
+    track.url.substringBefore('?').endsWith(".vtt", true) -> MimeTypes.TEXT_VTT
+    track.url.substringBefore('?').endsWith(".ass", true) || track.url.substringBefore('?').endsWith(".ssa", true) -> MimeTypes.TEXT_SSA
+    track.url.substringBefore('?').let { it.endsWith(".ttml", true) || it.endsWith(".dfxp", true) || it.endsWith(".xml", true) } -> MimeTypes.APPLICATION_TTML
     else -> MimeTypes.APPLICATION_SUBRIP
 }
 

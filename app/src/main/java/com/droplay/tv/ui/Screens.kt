@@ -115,29 +115,38 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         }
     }
 
-    when {
-        currentPlayback != null -> PlayerScreen(
-            media = currentPlayback.media, resumeAt = currentPlayback.startAt,
-            favorite = currentPlayback.media.id in state.favorites,
-            onFavorite = { viewModel.toggleFavorite(currentPlayback.media.id) },
-            onProgress = { p, d -> viewModel.saveProgress(currentPlayback.media, p, d) },
-            onBack = { playing = null },
-        )
-        detail != null -> DetailScreen(
-            media = detail!!, episodes = episodes, loadingEpisodes = loadingEpisodes,
-            state = state, onBack = { detail = null }, onPlay = ::requestPlay,
-            onFavorite = { viewModel.toggleFavorite(detail!!.id) },
-        )
-        state.source == null && !state.loading -> OnboardingScreen(state.error, viewModel::dismissError, viewModel::connect)
-        else -> CatalogScreen(
-            state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
-            onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
-            onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
-            onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
-            onContentSort = viewModel::setContentSort,
-            section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
-            onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
-        )
+    if (state.source == null && !state.loading) {
+        OnboardingScreen(state.error, viewModel::dismissError, viewModel::connect)
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            CatalogScreen(
+                state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
+                onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
+                onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
+                onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
+                onContentSort = viewModel::setContentSort,
+                section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
+                onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
+            )
+            detail?.let { selected ->
+                Surface(Modifier.fillMaxSize(), color = Navy) {
+                    DetailScreen(
+                        media = selected, episodes = episodes, loadingEpisodes = loadingEpisodes,
+                        state = state, active = currentPlayback == null, onBack = { detail = null }, onPlay = ::requestPlay,
+                        onFavorite = { viewModel.toggleFavorite(selected.id) },
+                    )
+                }
+            }
+            currentPlayback?.let { session ->
+                PlayerScreen(
+                    media = session.media, resumeAt = session.startAt,
+                    favorite = session.media.id in state.favorites,
+                    onFavorite = { viewModel.toggleFavorite(session.media.id) },
+                    onProgress = { p, d -> viewModel.saveProgress(session.media, p, d) },
+                    onBack = { playing = null },
+                )
+            }
+        }
     }
 
     if (state.loading) LoadingOverlay(state.loadingMessage)
@@ -517,15 +526,15 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun DetailScreen(media: MediaEntry, episodes: List<MediaEntry>, loadingEpisodes: Boolean, state: AppState, onBack: () -> Unit, onPlay: (MediaEntry) -> Unit, onFavorite: () -> Unit) {
-    BackHandler(onBack = onBack)
-    if (media.kind == MediaKind.SERIES) SeriesDetail(media, episodes, loadingEpisodes, state, onBack, onPlay, onFavorite)
-    else MovieDetail(media, state.progress(media.id), media.id in state.favorites, onBack, { onPlay(media) }, onFavorite)
+@Composable private fun DetailScreen(media: MediaEntry, episodes: List<MediaEntry>, loadingEpisodes: Boolean, state: AppState, active: Boolean, onBack: () -> Unit, onPlay: (MediaEntry) -> Unit, onFavorite: () -> Unit) {
+    if (media.kind == MediaKind.SERIES) SeriesDetail(media, episodes, loadingEpisodes, state, active, onBack, onPlay, onFavorite)
+    else MovieDetail(media, state.progress(media.id), media.id in state.favorites, active, onBack, { onPlay(media) }, onFavorite)
 }
 
-@Composable private fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
+@Composable private fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, active: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
     val initialFocus = remember { FocusRequester() }
-    LaunchedEffect(media.id) {
+    LaunchedEffect(media.id, active) {
+        if (!active) return@LaunchedEffect
         delay(100)
         initialFocus.requestFocus()
     }
@@ -533,33 +542,34 @@ private fun CatalogScreen(
         AsyncImage(media.backdrop ?: media.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.7f), contentScale = ContentScale.Crop, alpha = .38f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.94f), Color.Transparent))))
         Column(Modifier.fillMaxHeight().width(700.dp).padding(38.dp), verticalArrangement = Arrangement.Center) {
-            BackButton(back, Modifier.focusRequester(initialFocus))
+            BackButton(back, Modifier.focusRequester(initialFocus), focusBorderColor = Violet)
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text(listOfNotNull(CatalogOrganizer.category(media), media.year?.toString(), media.durationMs.takeIf { it > 0 }?.let(::timeLabel)).joinToString("  •  "), color = Cyan, fontSize = 13.sp)
             Spacer(Modifier.height(13.dp))
             Text(media.description ?: "Sinopse não informada pelo provedor.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Você parou em ${timeLabel(it.positionMs)} de ${timeLabel(it.durationMs)}", Modifier.padding(top = 14.dp), color = Cyan) }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play)
-                ModernButton(if (favorite) "♥  Na minha lista" else "+  Minha lista", fav, primary = false)
+                ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play, focusBorderColor = Violet)
+                ModernButton(if (favorite) "♥  Na minha lista" else "+  Minha lista", fav, primary = false, focusBorderColor = Violet)
             }
         }
     }
 }
 
-@Composable private fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
+@Composable private fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, active: Boolean, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
     val initialFocus = remember { FocusRequester() }
     var screenHasFocus by remember { mutableStateOf(false) }
     val seasons = episodes.mapNotNull { it.season }.distinct().sorted()
     val lastEpisode = state.history.firstOrNull { it.parentSeriesId == series.seriesId }?.let { h -> episodes.firstOrNull { it.id == h.mediaId } }
     var selectedSeason by remember(seasons, lastEpisode?.season) { mutableIntStateOf(lastEpisode?.season ?: seasons.firstOrNull() ?: 1) }
     val visible = episodes.filter { it.season == selectedSeason }
-    LaunchedEffect(series.id) {
+    LaunchedEffect(series.id, active) {
+        if (!active) return@LaunchedEffect
         delay(100)
         initialFocus.requestFocus()
     }
     LaunchedEffect(loading, episodes.isNotEmpty()) {
-        if (!loading && !screenHasFocus) {
+        if (active && !loading && !screenHasFocus) {
             delay(100)
             initialFocus.requestFocus()
         }
@@ -673,7 +683,7 @@ private fun CatalogScreen(
         item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Atualização da biblioteca", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Por padrão, a lista é baixada uma vez ao dia. O catálogo salvo abre imediatamente.", color = Muted)
+                Text("Por padrão, a lista é baixada uma vez por semana. O catálogo salvo abre imediatamente.", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     CategoryTab("Toda abertura", state.refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
                     CategoryTab("1x ao dia", state.refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
@@ -735,6 +745,7 @@ private fun CatalogScreen(
     danger: Boolean = false,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    focusBorderColor: Color = Cyan,
 ) {
     var focused by remember { mutableStateOf(false) }
     val container = when { danger -> Coral; primary -> Color.White; else -> Color(0x331AFFFFFF) }
@@ -743,7 +754,7 @@ private fun CatalogScreen(
         onClick = onClick, enabled = enabled,
         modifier = modifier.onFocusChanged { focused = it.isFocused }.graphicsLayer {
             scaleX = if (focused) 1.04f else 1f; scaleY = if (focused) 1.04f else 1f
-        }.border(if (focused) 2.dp else 0.dp, Cyan, RoundedCornerShape(8.dp)),
+        }.border(if (focused) 2.dp else 0.dp, focusBorderColor, RoundedCornerShape(8.dp)),
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content,
             disabledContainerColor = Color(0xFF31374E), disabledContentColor = Muted),
@@ -751,8 +762,8 @@ private fun CatalogScreen(
     ) { Text(text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
 }
 
-@Composable private fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    ModernButton("←  VOLTAR", onClick, primary = false, modifier = modifier)
+@Composable private fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier, focusBorderColor: Color = Cyan) {
+    ModernButton("←  VOLTAR", onClick, primary = false, modifier = modifier, focusBorderColor = focusBorderColor)
 }
 
 @Composable private fun SeriesFavoriteButton(favorite: Boolean, onClick: () -> Unit) {

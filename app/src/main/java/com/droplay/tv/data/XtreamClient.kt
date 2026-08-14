@@ -194,7 +194,8 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                 if (rawUrl != null) {
                     resolvedSubtitleUrl(rawUrl)?.let { url ->
                         output += SubtitleTrack(url, firstText(value, "label", "title", "name") ?: fallbackLabel,
-                            firstText(value, "language", "lang", "code"))
+                            firstText(value, "language", "lang", "code"),
+                            firstText(value, "mime_type", "mime", "format", "codec_name", "type"))
                     }
                 } else {
                     value.keys().forEach { key -> collectSubtitles(value.opt(key), key, output) }
@@ -214,7 +215,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
     private fun resolvedSubtitleUrl(raw: String): String? {
         val value = raw.trim()
         if (value.isBlank() || value.equals("null", true)) return null
-        val looksLikeSubtitle = value.startsWith("http://", true) || value.startsWith("https://", true) || value.startsWith('/') ||
+        val looksLikeSubtitle = value.startsWith("http://", true) || value.startsWith("https://", true) || value.startsWith("//") || value.startsWith('/') ||
             Regex("(?i)\\.(srt|vtt|ass|ssa|ttml|dfxp)(?:\\?.*)?$").containsMatchIn(value)
         if (!looksLikeSubtitle) return null
         return runCatching { URI("$base/").resolve(value).toString() }.getOrDefault(value)
