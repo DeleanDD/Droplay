@@ -27,6 +27,9 @@ class CatalogOrganizerTest {
     @Test fun mergesCategoriesAndDubbedSubtitledVariants() {
         assertEquals("Ação", CatalogOrganizer.cleanCategory("FILMES | Ação²", MediaKind.MOVIE))
         assertEquals("Disney Plus", CatalogOrganizer.cleanCategory("Séries Disney Plus", MediaKind.SERIES))
+        assertEquals("Disney Plus", CatalogOrganizer.cleanCategory("Séries Disney +", MediaKind.SERIES))
+        assertEquals("Apple TV+", CatalogOrganizer.cleanCategory("Séries Apple TV Plus", MediaKind.SERIES))
+        assertEquals("Apple TV+", CatalogOrganizer.cleanCategory("Séries Apple TV+", MediaKind.SERIES))
         val dubbed = entry("Meu Filme", MediaKind.MOVIE, "Filmes Ação")
         val subtitled = entry("Meu Filme [L]", MediaKind.MOVIE, "Filmes Legendados")
         assertEquals(1, CatalogOrganizer.collapseMovieVariants(listOf(subtitled, dubbed)).size)
@@ -37,12 +40,14 @@ class CatalogOrganizerTest {
 
     @Test fun classifiesKidsNationalAndLiveCategories() {
         assertTrue(CatalogOrganizer.isKids(entry("Discovery Kids", MediaKind.LIVE, "Canais infantis")))
+        assertFalse(CatalogOrganizer.isKids(entry("Sugar Baby", MediaKind.MOVIE, "Filmes romance")))
+        assertTrue(CatalogOrganizer.isKids(entry("BabyTV", MediaKind.LIVE, "Canais variados")))
         assertTrue(CatalogOrganizer.isNational(entry("Cidade de Deus", MediaKind.MOVIE, "Cinema nacional")))
         assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("Jogo de hoje", MediaKind.LIVE, "Futebol ao vivo")))
         assertEquals("Globo", CatalogOrganizer.category(entry("Globo Sudeste", MediaKind.LIVE, "Globo Sul")))
         assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("PPV 01", MediaKind.LIVE, "PayPerView")))
         assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("Canal 01", MediaKind.LIVE, "Jogos Principais")))
-        assertEquals("Filmes", CatalogOrganizer.category(entry("Canal Cinema", MediaKind.LIVE, "Canais Filmes")))
+        assertEquals("Filmes e séries", CatalogOrganizer.category(entry("Canal Cinema", MediaKind.LIVE, "Canais Filmes")))
     }
 
     @Test fun blocksBrasilParareloEverywhereAndPreparesViewsOnce() {

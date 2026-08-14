@@ -26,6 +26,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -248,7 +253,7 @@ private fun CatalogScreen(
     val groups = state.preparedCatalog.homeShelves
     val live = state.preparedCatalog.live.take(24)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
-        if (featured.isNotEmpty()) item { FeaturedCarousel("DROPLAY DESTAQUE  •  LANÇAMENTOS 2026", featured, state, open, favorite) }
+        if (featured.isNotEmpty()) item { FeaturedCarousel("DROPLAY DESTAQUE  •  LANÇAMENTOS 2026", featured, state, open) }
         if (recent.isNotEmpty()) item { PosterShelf("Continuar assistindo", recent.take(20), state, open, favorite) }
         groups.forEach { (name, items) -> item { PosterShelf(name, items.take(24), state, open, favorite) } }
         if (live.isNotEmpty()) item { PosterShelf("Ao vivo", live, state, open, favorite) }
@@ -270,7 +275,7 @@ private fun CatalogScreen(
                 Text("Filmes, desenhos e canais para a família.", color = Color.White.copy(alpha = .9f))
             }
         }
-        if (highlights.isNotEmpty()) item { FeaturedCarousel("DESTAQUES INFANTIS", highlights, state, open, favorite) }
+        if (highlights.isNotEmpty()) item { FeaturedCarousel("DESTAQUES INFANTIS", highlights, state, open) }
         if (movies.isNotEmpty()) item { PosterShelf("🍿 Filmes", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("✨ Séries", series, state, open, favorite) }
         if (cartoons.isNotEmpty()) item { PosterShelf("🎨 Desenhos animados", cartoons, state, open, favorite) }
@@ -292,7 +297,7 @@ private fun CatalogScreen(
                 Text("Produções brasileiras em destaque", color = Color(0xFF062D1C))
             }
         }
-        if (highlights.isNotEmpty()) item { FeaturedCarousel("LANÇAMENTOS NACIONAIS", highlights, state, open, favorite) }
+        if (highlights.isNotEmpty()) item { FeaturedCarousel("LANÇAMENTOS NACIONAIS", highlights, state, open) }
         if (movies.isNotEmpty()) item { PosterShelf("Filmes brasileiros", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("Séries brasileiras", series, state, open, favorite) }
         if (novels.isNotEmpty()) item { PosterShelf("Novelas", novels, state, open, favorite) }
@@ -305,7 +310,6 @@ private fun CatalogScreen(
     entries: List<MediaEntry>,
     state: AppState,
     open: (MediaEntry) -> Unit,
-    favorite: (String) -> Unit,
 ) {
     var index by remember(entries) { mutableIntStateOf(0) }
     LaunchedEffect(entries) {
@@ -316,7 +320,14 @@ private fun CatalogScreen(
     }
     val item = entries[index.coerceIn(0, entries.lastIndex)]
     Column {
-        NetflixHero(item, title, state.progress(item.id), item.id in state.favorites, { open(item) }, { favorite(item.id) })
+        NetflixHero(
+            item = item,
+            eyebrow = title,
+            progress = state.progress(item.id),
+            open = { open(item) },
+            previous = { index = if (index == 0) entries.lastIndex else index - 1 },
+            next = { index = (index + 1) % entries.size },
+        )
         if (entries.size > 1) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
             entries.indices.forEach { position ->
                 Box(Modifier.padding(horizontal = 3.dp).size(if (position == index) 24.dp else 8.dp, 3.dp)
@@ -326,8 +337,27 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun NetflixHero(item: MediaEntry, eyebrow: String, progress: WatchRecord?, favorite: Boolean, play: () -> Unit, fav: () -> Unit) {
-    Box(Modifier.fillMaxWidth().height(330.dp).background(Color(0xFF11152A))) {
+@Composable private fun NetflixHero(
+    item: MediaEntry,
+    eyebrow: String,
+    progress: WatchRecord?,
+    open: () -> Unit,
+    previous: () -> Unit,
+    next: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth().height(330.dp)
+        .onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when (event.key) {
+                Key.DirectionLeft -> { previous(); true }
+                Key.DirectionRight -> { next(); true }
+                else -> false
+            }
+        }
+        .onFocusChanged { focused = it.isFocused }
+        .border(if (focused) 3.dp else 0.dp, if (focused) Cyan else Color.Transparent)
+        .background(Color(0xFF11152A)).clickable(onClick = open)) {
         AsyncImage(item.backdrop ?: item.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.72f), contentScale = ContentScale.Crop, alpha = .72f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(alpha = .78f), Color.Transparent))))
         Column(Modifier.align(Alignment.CenterStart).padding(start = 40.dp).width(530.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -335,10 +365,7 @@ private fun CatalogScreen(
             Text(item.name, fontSize = 35.sp, fontWeight = FontWeight.Black, maxLines = 2)
             Text(item.description ?: item.group, color = Color(0xFFD4D7E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Assistido até ${timeLabel(it.positionMs)}", color = Cyan, fontSize = 13.sp) }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ModernButton(if (progress != null) "▶  Continuar" else "▶  Assistir", play)
-                ModernButton(if (favorite) "♥  Minha lista" else "+  Minha lista", fav, primary = false)
-            }
+            Text("Use ◀  ▶ para navegar • OK para abrir", color = Color.White.copy(alpha = .72f), fontSize = 12.sp)
         }
     }
 }
@@ -385,7 +412,7 @@ private fun CatalogScreen(
             prepared.categoryIndex[MediaKind.MOVIE].orEmpty().keys.sorted() + "Todos"
         Section.SERIES -> listOf(CatalogOrganizer.RELEASES) +
             prepared.categoryIndex[MediaKind.SERIES].orEmpty().keys.sortedWith(compareBy(::seriesCategoryRank, String::lowercase)) + "Todos"
-        Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE].orEmpty().keys
+        Section.LIVE -> listOf("Favoritos") + prepared.categoryIndex[MediaKind.LIVE].orEmpty().keys
             .sortedWith(compareBy(::liveCategoryRank, String::lowercase)) + "Todos"
         Section.FAVORITES -> listOf("Filmes", "Séries", "TV ao vivo")
         else -> emptyList()
@@ -394,7 +421,7 @@ private fun CatalogScreen(
         Section.MOVIES -> CatalogOrganizer.RECENT
         Section.SERIES -> CatalogOrganizer.RELEASES
         Section.FAVORITES -> "Filmes"
-        Section.LIVE -> categories.firstOrNull { it == CatalogOrganizer.FOOTBALL } ?: categories.firstOrNull() ?: "Todos"
+        Section.LIVE -> "Favoritos"
         else -> null
     }
     val selectedItems = remember(section, activeCategory, all) { when {
@@ -405,6 +432,7 @@ private fun CatalogScreen(
         section == Section.FAVORITES && activeCategory == "Filmes" -> all.filter { it.kind == MediaKind.MOVIE }
         section == Section.FAVORITES && activeCategory == "Séries" -> all.filter { it.kind == MediaKind.SERIES }
         section == Section.FAVORITES && activeCategory == "TV ao vivo" -> all.filter { it.kind == MediaKind.LIVE }
+        section == Section.LIVE && activeCategory == "Favoritos" -> all.filter { it.id in state.favorites }
         section == Section.MOVIES -> prepared.categoryIndex[MediaKind.MOVIE]?.get(activeCategory).orEmpty()
         section == Section.SERIES -> prepared.categoryIndex[MediaKind.SERIES]?.get(activeCategory).orEmpty()
         section == Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE]?.get(activeCategory).orEmpty()
@@ -422,8 +450,38 @@ private fun CatalogScreen(
             }
         }
         if (visible.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (section == Section.SEARCH && query.length < 2) "Digite ao menos 2 caracteres" else "Nada por aqui ainda.", color = Muted) }
+        else if (section == Section.LIVE) LiveChannelList(visible, state.favorites, open, favorite)
         else LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(32.dp, 4.dp, 32.dp, 50.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             items(visible, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }, removable = section == Section.FAVORITES) }
+        }
+    }
+}
+
+@Composable private fun LiveChannelList(
+    entries: List<MediaEntry>,
+    favorites: Set<String>,
+    open: (MediaEntry) -> Unit,
+    favorite: (String) -> Unit,
+) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(32.dp, 4.dp, 32.dp, 50.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        items(entries, key = { it.id }) { item ->
+            var focused by remember { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth().height(76.dp).onFocusChanged { focused = it.isFocused }
+                .clip(RoundedCornerShape(12.dp))
+                .border(if (focused) 2.dp else 0.dp, Color.White, RoundedCornerShape(12.dp))
+                .background(if (focused) Color(0xFF28345C) else Surface)
+                .clickable { open(item) }.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(58.dp).clip(RoundedCornerShape(9.dp)).background(Color(0xFF151C35)), contentAlignment = Alignment.Center) {
+                    if (!item.logo.isNullOrBlank()) AsyncImage(item.logo, item.name, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    else Text("▶", color = Cyan, fontSize = 22.sp)
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                    Text(item.name, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(item.group, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text("AO VIVO", Modifier.background(Coral, RoundedCornerShape(4.dp)).padding(7.dp, 3.dp), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(if (item.id in favorites) "♥" else "♡", Modifier.clickable { favorite(item.id) }.padding(16.dp), color = if (item.id in favorites) Coral else Color.White, fontSize = 23.sp)
+            }
         }
     }
 }
@@ -711,7 +769,7 @@ private fun liveCategoryRank(value: String): Int = when (value) {
     "SBT" -> 2
     "Band" -> 3
     "Record" -> 4
-    "Filmes" -> 5
+    "Filmes e séries" -> 5
     "Esportes" -> 6
     "Documentários e curiosidades" -> 7
     "Todos" -> Int.MAX_VALUE

@@ -88,9 +88,11 @@ object CatalogOrganizer {
     }
 
     fun isKids(item: MediaEntry): Boolean {
-        val text = normalized("${item.group} ${item.name}")
-        return listOf("infantil", "kids", "crianca", "desenho", "cartoon", "baby", "junior", "nick jr", "disney jr", "discovery kids", "gloob", "boomerang", "toon", "turma da monica")
-            .any(text::contains)
+        val group = normalized(item.group)
+        val name = normalized(item.name)
+        val categorySignals = listOf("infantil", "kids", "crianca", "desenho", "cartoon", "baby", "junior", "nick jr", "disney jr", "discovery kids", "gloob", "boomerang", "toon")
+        val unmistakableKidsBrands = listOf("baby tv", "babytv", "nick jr", "disney jr", "discovery kids", "cartoon network", "gloob", "boomerang", "turma da monica")
+        return categorySignals.any(group::contains) || unmistakableKidsBrands.any(name::contains)
     }
 
     fun isCartoon(item: MediaEntry): Boolean {
@@ -181,7 +183,7 @@ object CatalogOrganizer {
             listOf("document", "curiosidade", "discovery", "history", "animal planet").any(text::contains) -> "Documentários e curiosidades"
             listOf("infantil", "kids", "desenho", "cartoon", "gloob", "nick", "disney jr").any(text::contains) -> "Infantis"
             text.contains("telecine") -> "Telecine"
-            listOf("filme", "movie", "cinema", "hbo", "megapix", "studio universal", "space").any(text::contains) -> "Filmes"
+            listOf("filme", "serie", "movie", "cinema", "hbo", "megapix", "studio universal", "space").any(text::contains) -> "Filmes e séries"
             text.contains("globo") -> "Globo"
             text.contains("sbt") -> "SBT"
             text.contains("record") -> "Record"
@@ -209,6 +211,8 @@ object CatalogOrganizer {
         "lancamento", "lancamentos" -> "Lançamentos"
         "documentario", "documentarios" -> "Documentários"
         "series" -> "Séries"
+        "disney plus", "disney +", "disney+", "disneyplus" -> "Disney Plus"
+        "apple tv plus", "apple tv +", "apple tv+", "appletv plus", "appletv+" -> "Apple TV+"
         else -> value.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.forLanguageTag("pt-BR")) else it.toString() }
     }
 
