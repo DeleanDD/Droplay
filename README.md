@@ -11,6 +11,8 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 - múltiplas faixas de áudio e legendas expostas pelo stream;
 - avanço/retrocesso por D-pad, barra rápida e teclas de mídia;
 - favoritos, histórico e retomada local;
+- catálogo por capas, páginas de detalhes, temporadas e episódios;
+- subcategorias em abas e escolha entre o player integrado e o VLC instalado;
 - interface 10-foot premium, criada para controle remoto;
 - HLS, DASH e mídia progressiva via AndroidX Media3;
 - release otimizado com R8 e remoção de recursos não usados.

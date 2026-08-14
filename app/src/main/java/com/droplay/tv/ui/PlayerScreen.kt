@@ -1,12 +1,16 @@
 package com.droplay.tv.ui
 
 import android.view.KeyEvent
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,7 +30,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -45,27 +48,33 @@ fun PlayerScreen(
     onProgress: (Long, Long) -> Unit,
     onBack: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     val context = LocalContext.current
     val player = remember(media.url) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(media.url))
-            prepare()
-            if (resumeAt > 10_000) seekTo(resumeAt)
+            setMediaItem(MediaItem.fromUri(media.url)); prepare()
+            if (resumeAt > 0) seekTo(resumeAt)
             playWhenReady = true
         }
     }
     var controls by remember { mutableStateOf(true) }
+    var controlFocused by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(resumeAt) }
     var duration by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(true) }
     var panel by remember { mutableStateOf<TrackPanel?>(null) }
     var interaction by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var ghost by remember { mutableStateOf<String?>(null) }
     val rootFocus = remember { FocusRequester() }
 
     fun wake() { controls = true; interaction = System.currentTimeMillis() }
     fun seek(delta: Long) {
         if (duration > 0) player.seekTo((player.currentPosition + delta).coerceIn(0, duration))
+        wake()
+    }
+    fun togglePlayback() {
+        if (player.isPlaying) { player.pause(); ghost = "Ⅱ" } else { player.play(); ghost = "▶" }
         wake()
     }
 
@@ -88,9 +97,10 @@ fun PlayerScreen(
         }
     }
     LaunchedEffect(interaction, playing) {
-        delay(5_000)
-        if (playing && System.currentTimeMillis() - interaction >= 4_900) controls = false
+        delay(4_500)
+        if (playing && !controlFocused && System.currentTimeMillis() - interaction >= 4_400) controls = false
     }
+    LaunchedEffect(ghost) { if (ghost != null) { delay(700); ghost = null } }
     LaunchedEffect(Unit) { rootFocus.requestFocus() }
 
     Box(
@@ -98,11 +108,10 @@ fun PlayerScreen(
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> { seek(-15_000); true }
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> { seek(15_000); true }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                        if (!controls) wake() else { if (player.isPlaying) player.pause() else player.play(); wake() }; true
-                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (controlFocused) false else { seek(-15_000); true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlFocused) false else { seek(15_000); true }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
+                        if (controlFocused) false else { togglePlayback(); true }
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); false }
                     KeyEvent.KEYCODE_BACK -> { onBack(); true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(30_000); true }
@@ -114,54 +123,65 @@ fun PlayerScreen(
         AndroidView(factory = { PlayerView(it).apply { useController = false; this.player = player } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
         if (buffering) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Cyan)
 
-        if (controls) {
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xBB000000), Color.Transparent, Color(0xDD000000))))) {
-                Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(28.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ControlButton("←  Voltar", onBack)
-                    Column(Modifier.padding(start = 20.dp).weight(1f)) { Text(media.name, fontSize = 24.sp); Text(media.group, color = Muted, fontSize = 13.sp) }
-                    ControlButton(if (favorite) "♥ Favorito" else "♡ Favoritar", onFavorite)
+        AnimatedVisibility(ghost != null, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.size(92.dp).background(Color(0xAA05081B), CircleShape), contentAlignment = Alignment.Center) {
+                Text(ghost.orEmpty(), fontSize = 38.sp, color = Color.White)
+            }
+        }
+
+        AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut()) {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xA8000000), Color.Transparent, Color(0xE8000000))))) {
+                Column(Modifier.align(Alignment.TopStart).padding(30.dp)) {
+                    Text(media.name, fontSize = 23.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text(media.group, color = Muted, fontSize = 12.sp)
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 38.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     if (duration > 0) {
-                        TvSeekBar(position, duration) { player.seekTo(it); wake() }
-                        Row(Modifier.fillMaxWidth()) { Text(formatTime(position), fontSize = 12.sp); Spacer(Modifier.weight(1f)); Text("-${formatTime((duration - position).coerceAtLeast(0))}", fontSize = 12.sp) }
-                    } else Text("TRANSMISSÃO AO VIVO", color = Coral, fontSize = 12.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        ControlButton("−30s") { seek(-30_000) }
-                        Spacer(Modifier.width(16.dp))
-                        Button(onClick = { if (player.isPlaying) player.pause() else player.play(); wake() }, Modifier.size(70.dp), contentPadding = PaddingValues(0.dp)) { Text(if (playing) "Ⅱ" else "▶", fontSize = 24.sp) }
-                        Spacer(Modifier.width(16.dp))
-                        ControlButton("+30s") { seek(30_000) }
-                        Spacer(Modifier.width(35.dp))
-                        ControlButton("Áudio") { panel = TrackPanel.AUDIO; wake() }
-                        Spacer(Modifier.width(10.dp))
-                        ControlButton("Legendas") { panel = TrackPanel.SUBTITLES; wake() }
+                        TvSeekBar(position, duration, { player.seekTo(it); wake() }, { controlFocused = it; if (it) wake() })
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(formatTime(position), fontSize = 11.sp)
+                            Spacer(Modifier.weight(1f))
+                            Text(formatTime(duration), fontSize = 11.sp)
+                        }
+                    } else Text("●  AO VIVO", color = Coral, fontSize = 12.sp)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
+                        Spacer(Modifier.weight(1f))
+                        MiniControl(if (favorite) "♥" else "♡", "Favorito", { controlFocused = it; if (it) wake() }, onFavorite)
+                        Spacer(Modifier.width(8.dp))
+                        MiniControl("◉", "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
+                        Spacer(Modifier.width(8.dp))
+                        MiniControl("CC", "Legendas", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.SUBTITLES; wake() }
                     }
-                    Text("←/→ avança 15s  •  mantenha o foco na barra para navegar rapidamente", Modifier.align(Alignment.CenterHorizontally), color = Muted, fontSize = 11.sp)
                 }
             }
         }
     }
-
-    panel?.let { TrackDialog(player, it, onDismiss = { panel = null; wake() }) }
+    panel?.let { TrackDialog(player, it, onDismiss = { panel = null; controlFocused = false; wake() }) }
 }
 
-@Composable private fun ControlButton(text: String, click: () -> Unit) {
+@Composable private fun MiniControl(icon: String, description: String, focus: (Boolean) -> Unit, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    OutlinedButton(click, Modifier.onFocusChanged { focused = it.isFocused }.border(if (focused) 2.dp else 0.dp, Cyan, RoundedCornerShape(50)), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (focused) Color(0xFF25305B) else Color(0x9905081B))) { Text(text) }
+    TextButton(onClick = click, modifier = Modifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+        .sizeIn(minWidth = 46.dp, minHeight = 38.dp).border(if (focused) 2.dp else 0.dp, Cyan, RoundedCornerShape(8.dp)),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
+        Text(icon, fontSize = if (icon == "CC") 13.sp else 20.sp, color = if (focused) Cyan else Color.White)
+    }
 }
 
-@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit) {
+@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit, focus: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val fraction = (position.toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Box(Modifier.fillMaxWidth().height(28.dp).onFocusChanged { focused = it.isFocused }.onPreviewKeyEvent { event ->
-        if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) false else when (event.nativeKeyEvent.keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> { seek((position - 30_000).coerceAtLeast(0)); true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { seek((position + 30_000).coerceAtMost(duration)); true }
-            else -> false
-        }
-    }.focusable(), contentAlignment = Alignment.Center) {
-        LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(if (focused) 10.dp else 6.dp), color = if (focused) Cyan else Violet, trackColor = Color(0xFF444B68))
+    Box(Modifier.fillMaxWidth().height(26.dp).onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+        .onPreviewKeyEvent { event ->
+            if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) false else when (event.nativeKeyEvent.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> { seek((position - 30_000).coerceAtLeast(0)); true }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { seek((position + 30_000).coerceAtMost(duration)); true }
+                else -> false
+            }
+        }.focusable(), contentAlignment = Alignment.Center) {
+        LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(if (focused) 9.dp else 5.dp),
+            color = if (focused) Cyan else Coral, trackColor = Color(0xFF555A6D))
     }
 }
 

@@ -15,13 +15,14 @@ data class AppState(
     val catalog: Catalog = Catalog(),
     val favorites: Set<String> = emptySet(),
     val history: List<WatchRecord> = emptyList(),
+    val playerEngine: PlayerEngine = PlayerEngine.DROPLAY,
     val loading: Boolean = false,
     val error: String? = null,
 )
 
 class DroplayViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DroplayRepository(application)
-    private val _state = MutableStateFlow(AppState(favorites = repository.favorites(), history = repository.history()))
+    private val _state = MutableStateFlow(AppState(favorites = repository.favorites(), history = repository.history(), playerEngine = repository.playerEngine()))
     val state = _state.asStateFlow()
 
     init { repository.savedSource()?.let(::connect) }
@@ -41,10 +42,14 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun toggleFavorite(id: String) { _state.value = _state.value.copy(favorites = repository.toggleFavorite(id)) }
-    fun saveProgress(id: String, position: Long, duration: Long) {
-        repository.saveProgress(id, position, duration)
+    fun saveProgress(media: MediaEntry, position: Long, duration: Long) {
+        repository.saveProgress(media, position, duration)
         _state.value = _state.value.copy(history = repository.history())
     }
+    fun setPlayerEngine(engine: PlayerEngine) {
+        repository.setPlayerEngine(engine)
+        _state.value = _state.value.copy(playerEngine = engine)
+    }
     fun dismissError() { _state.value = _state.value.copy(error = null) }
-    fun disconnect() { repository.clearSource(); _state.value = AppState(favorites = repository.favorites(), history = repository.history()) }
+    fun disconnect() { repository.clearSource(); _state.value = AppState(favorites = repository.favorites(), history = repository.history(), playerEngine = repository.playerEngine()) }
 }

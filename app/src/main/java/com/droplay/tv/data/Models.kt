@@ -1,6 +1,7 @@
 package com.droplay.tv.data
 
 enum class MediaKind { LIVE, MOVIE, SERIES }
+enum class PlayerEngine { DROPLAY, VLC }
 
 data class MediaEntry(
     val id: String,
@@ -13,6 +14,9 @@ data class MediaEntry(
     val description: String? = null,
     val backdrop: String? = null,
     val seriesId: String? = null,
+    val parentSeriesId: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 data class EpgProgram(
@@ -28,7 +32,23 @@ sealed interface PlaylistSource {
     data class Xtream(val server: String, val username: String, val password: String) : PlaylistSource
 }
 
-data class WatchRecord(val mediaId: String, val positionMs: Long, val durationMs: Long, val watchedAt: Long)
+data class WatchRecord(
+    val mediaId: String,
+    val positionMs: Long,
+    val durationMs: Long,
+    val watchedAt: Long,
+    val name: String = "",
+    val url: String = "",
+    val kind: MediaKind = MediaKind.MOVIE,
+    val group: String = "",
+    val logo: String? = null,
+    val parentSeriesId: String? = null,
+) {
+    fun asMediaEntry() = MediaEntry(
+        id = mediaId, name = name.ifBlank { "Conteúdo recente" }, url = url,
+        kind = kind, group = group, logo = logo, parentSeriesId = parentSeriesId,
+    )
+}
 
 data class Catalog(
     val entries: List<MediaEntry> = emptyList(),
