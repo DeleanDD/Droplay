@@ -30,6 +30,26 @@ class DroplayRepository(context: Context) {
 
     fun lastRefresh(): Long = prefs.getLong("last_catalog_refresh", 0L)
 
+    fun showAdultContent(): Boolean = prefs.getBoolean("show_adult_content", false)
+    fun setShowAdultContent(show: Boolean) { prefs.edit().putBoolean("show_adult_content", show).apply() }
+    fun showCinemaContent(): Boolean = prefs.getBoolean("show_cinema_content", false)
+    fun setShowCinemaContent(show: Boolean) { prefs.edit().putBoolean("show_cinema_content", show).apply() }
+    fun contentSort(): ContentSort = runCatching {
+        ContentSort.valueOf(prefs.getString("content_sort", ContentSort.YEAR_DESC.name).orEmpty())
+    }.getOrDefault(ContentSort.YEAR_DESC)
+    fun setContentSort(sort: ContentSort) { prefs.edit().putString("content_sort", sort.name).apply() }
+    fun playCounts(): Map<String, Int> {
+        val json = runCatching { JSONObject(prefs.getString("play_counts", "{}").orEmpty()) }.getOrDefault(JSONObject())
+        return json.keys().asSequence().associateWith { json.optInt(it) }
+    }
+    fun recordPlaybackStarted(id: String): Map<String, Int> {
+        val counts = playCounts().toMutableMap()
+        counts[id] = (counts[id] ?: 0) + 1
+        val json = JSONObject(); counts.forEach { (key, value) -> json.put(key, value) }
+        prefs.edit().putString("play_counts", json.toString()).apply()
+        return counts
+    }
+
     fun load(source: PlaylistSource, save: Boolean = true, force: Boolean = false): Catalog {
         if (!force) cachedCatalog(source, requireFresh = true)?.let { return it }
 
@@ -38,7 +58,7 @@ class DroplayRepository(context: Context) {
             val epgUrl: String?
             when (source) {
                 is PlaylistSource.M3u -> {
-                    val body = Network.text(source.url)
+                    val body = Network.text(m3uPlusUrl(source.url))
                     require(body.lineSequence().firstOrNull()?.trim()?.startsWith("#EXTM3U", true) == true) { "A URL não retornou uma lista M3U válida." }
                     entries = M3uParser.parse(body)
                     epgUrl = Regex("(?:x-tvg-url|url-tvg)=\"([^\"]+)\"", RegexOption.IGNORE_CASE)
@@ -68,6 +88,9 @@ class DroplayRepository(context: Context) {
 
     fun loadEpisodes(source: PlaylistSource, seriesId: String) =
         if (source is PlaylistSource.Xtream) XtreamClient(source).episodes(seriesId) else emptyList()
+
+    fun loadDetails(source: PlaylistSource, media: MediaEntry): MediaEntry =
+        if (source is PlaylistSource.Xtream) XtreamClient(source).details(media) else media
 
     fun favorites(): Set<String> = prefs.getStringSet("favorites", emptySet())?.toSet().orEmpty()
     fun toggleFavorite(id: String): Set<String> {
@@ -143,6 +166,7 @@ class DroplayRepository(context: Context) {
         .put("group", item.group).put("logo", item.logo).put("epgId", item.epgId)
         .put("description", item.description).put("backdrop", item.backdrop).put("seriesId", item.seriesId)
         .put("parentSeriesId", item.parentSeriesId).put("season", item.season).put("episode", item.episode)
+        .put("year", item.year).put("addedAt", item.addedAt).put("durationMs", item.durationMs)
 
     private fun entryFromJson(json: JSONObject) = MediaEntry(
         id = json.getString("id"), name = json.getString("name"), url = json.getString("url"),
@@ -152,6 +176,8 @@ class DroplayRepository(context: Context) {
         seriesId = json.textOrNull("seriesId"), parentSeriesId = json.textOrNull("parentSeriesId"),
         season = json.optInt("season").takeIf { json.has("season") && !json.isNull("season") },
         episode = json.optInt("episode").takeIf { json.has("episode") && !json.isNull("episode") },
+        year = json.optInt("year").takeIf { json.has("year") && !json.isNull("year") },
+        addedAt = json.optLong("addedAt"), durationMs = json.optLong("durationMs"),
     )
 
     private fun JSONObject.textOrNull(key: String) = optString(key).takeIf { has(key) && !isNull(key) && it.isNotBlank() && it != "null" }
@@ -162,6 +188,12 @@ class DroplayRepository(context: Context) {
             is PlaylistSource.Xtream -> "xtream:${source.server}|${source.username}|${source.password}"
         }
         return MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    internal fun m3uPlusUrl(url: String): String {
+        if (!url.contains("get.php", ignoreCase = true) || Regex("[?&]type=", RegexOption.IGNORE_CASE).containsMatchIn(url)) return url
+        val separator = if ('?' in url) '&' else '?'
+        return "$url${separator}type=m3u_plus&output=ts"
     }
 
     private fun saveSource(source: PlaylistSource) = prefs.edit().apply {

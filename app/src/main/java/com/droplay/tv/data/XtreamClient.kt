@@ -30,13 +30,16 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             addAll(items("get_vod_streams").map { o ->
                 val id = o.optString("stream_id"); val ext = o.optString("container_extension", "mp4")
                 MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
-                    vodCategories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank), description = o.optString("plot").takeIf(String::isNotBlank))
+                    vodCategories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
+                    description = o.optString("plot").takeIf(String::isNotBlank), year = yearFrom(o),
+                    addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o))
             })
             addAll(items("get_series").map { o ->
                 val id = o.optString("series_id")
                 MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
                     seriesCategories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
-                    description = o.optString("plot").takeIf(String::isNotBlank), backdrop = imageFrom(o, "backdrop_path"), seriesId = id)
+                    description = o.optString("plot").takeIf(String::isNotBlank), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
+                    year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") }))
             })
         }
     }
@@ -53,9 +56,24 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                 MediaEntry("episode:$id", o.optString("title", "Episódio $episodeNumber"), "$base/series/$user/$pass/$id.$ext",
                     MediaKind.MOVIE, "Temporada $season", logo = info?.optString("movie_image")?.takeIf(String::isNotBlank),
                     description = info?.optString("plot")?.takeIf(String::isNotBlank), parentSeriesId = seriesId,
-                    season = season.toIntOrNull(), episode = episodeNumber)
+                    season = season.toIntOrNull(), episode = episodeNumber, durationMs = durationMillis(info ?: o))
             }
         }.toList()
+    }
+
+    fun details(media: MediaEntry): MediaEntry {
+        if (media.kind != MediaKind.MOVIE || !media.id.startsWith("movie:")) return media
+        val id = media.id.substringAfter(':')
+        val root = JSONObject(Network.text(api("get_vod_info", "&vod_id=${enc(id)}")))
+        val info = root.optJSONObject("info") ?: JSONObject()
+        val data = root.optJSONObject("movie_data") ?: JSONObject()
+        return media.copy(
+            description = info.optString("plot").takeIf(String::isNotBlank) ?: media.description,
+            logo = info.optString("movie_image").takeIf(String::isNotBlank) ?: media.logo,
+            backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,
+            year = yearFrom(info) ?: yearFrom(data) ?: media.year,
+            durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(data).takeIf { it > 0 } ?: media.durationMs,
+        )
     }
 
     private fun categories(action: String) = items(action).associate { it.optString("category_id") to it.optString("category_name", "Outros") }
@@ -71,5 +89,21 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             else -> null
         }
     }
-    private companion object { fun enc(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name()) }
+    private companion object {
+        fun enc(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
+        fun epochMillis(value: String): Long = value.toLongOrNull()?.let { if (it < 10_000_000_000L) it * 1_000L else it } ?: 0L
+        fun yearFrom(o: JSONObject): Int? = sequenceOf(o.optString("year"), o.optString("releaseDate"), o.optString("releasedate"), o.optString("name"))
+            .mapNotNull { Regex("(?:19|20)\\d{2}").find(it)?.value?.toIntOrNull() }.firstOrNull()
+        fun durationMillis(o: JSONObject): Long {
+            o.optLong("duration_secs", 0L).takeIf { it > 0 }?.let { return it * 1_000L }
+            val value = o.optString("duration")
+            if (value.isBlank()) return 0L
+            val parts = value.split(':').mapNotNull(String::toLongOrNull)
+            return when (parts.size) {
+                3 -> (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1_000L
+                2 -> (parts[0] * 60 + parts[1]) * 1_000L
+                else -> value.toLongOrNull()?.times(1_000L) ?: 0L
+            }
+        }
+    }
 }

@@ -9,6 +9,8 @@ enum class RefreshInterval(val durationMs: Long) {
     MONTHLY(30L * 24 * 60 * 60 * 1000),
 }
 
+enum class ContentSort { YEAR_DESC, ALPHABETICAL, MOST_WATCHED }
+
 data class MediaEntry(
     val id: String,
     val name: String,
@@ -23,6 +25,9 @@ data class MediaEntry(
     val parentSeriesId: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
+    val year: Int? = null,
+    val addedAt: Long = 0L,
+    val durationMs: Long = 0L,
 )
 
 data class EpgProgram(

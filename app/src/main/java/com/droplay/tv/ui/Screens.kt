@@ -22,10 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,12 +41,14 @@ import com.droplay.tv.DroplayViewModel
 import com.droplay.tv.R
 import com.droplay.tv.data.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
 private enum class Section(val title: String, val glyph: String) {
-    HOME("Início", "⌂"), LIVE("Ao vivo", "●"), MOVIES("Filmes", "▶"), SERIES("Séries", "▤"),
-    FAVORITES("Minha lista", "♥"), HISTORY("Continuar", "↻"), SEARCH("Buscar", "⌕"), SETTINGS("Configurações", "⚙")
+    SEARCH("Buscar", "⌕"), HOME("Início", "⌂"), KIDS("Infantil", "★"), NATIONAL("Nacional", "◆"),
+    LIVE("Ao vivo", "●"), MOVIES("Filmes", "▶"), SERIES("Séries", "▤"),
+    FAVORITES("Minha lista", "♥"), HISTORY("Continuar", "↻"), SETTINGS("Configurações", "⚙")
 }
 
 private data class PlaybackSession(val media: MediaEntry, val startAt: Long)
@@ -56,15 +61,23 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     var loadingEpisodes by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<PlaybackSession?>(null) }
     var resumeChoice by remember { mutableStateOf<Pair<MediaEntry, WatchRecord>?>(null) }
+    var variantChoice by remember { mutableStateOf<List<MediaEntry>?>(null) }
     var selectedSection by remember { mutableStateOf(Section.HOME) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     val currentPlayback = playing
 
     fun start(media: MediaEntry, at: Long) {
+        viewModel.recordPlaybackStarted(media.id)
         playing = PlaybackSession(media, at)
     }
-    fun requestPlay(media: MediaEntry) {
+    fun requestPlay(media: MediaEntry, offerVariants: Boolean = true) {
+        val allowed = CatalogOrganizer.visibleEntries(state.catalog.entries, state.showAdultContent, state.showCinemaContent)
+        val variants = CatalogOrganizer.variantsFor(media, allowed)
+        if (offerVariants && variants.map(CatalogOrganizer::isSubtitled).distinct().size > 1) {
+            variantChoice = variants
+            return
+        }
         val record = state.history.firstOrNull { it.mediaId == media.id }
         if (record != null && record.positionMs > 10_000 && (record.durationMs <= 0 || record.positionMs < record.durationMs - 30_000)) {
             resumeChoice = media to record
@@ -78,6 +91,11 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
             scope.launch {
                 episodes = viewModel.episodes(media.seriesId)
                 loadingEpisodes = false
+            }
+        } else if (media.kind == MediaKind.MOVIE) {
+            scope.launch {
+                val enriched = viewModel.details(media)
+                if (detail?.id == media.id) detail = enriched
             }
         }
     }
@@ -109,6 +127,8 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
             state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
             onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
             onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
+            onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
+            onContentSort = viewModel::setContentSort,
             section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
             onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
         )
@@ -119,6 +139,12 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         ResumeDialog(media, record, onDismiss = { resumeChoice = null }, onResume = {
             resumeChoice = null; start(media, record.positionMs)
         }, onRestart = { resumeChoice = null; start(media, 0) })
+    }
+    variantChoice?.let { variants ->
+        VariantDialog(variants, onDismiss = { variantChoice = null }) { chosen ->
+            variantChoice = null
+            requestPlay(chosen, offerVariants = false)
+        }
     }
 }
 
@@ -148,7 +174,7 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
                             TvField(username, { username = it }, "Usuário", modifier = Modifier.weight(1f))
                             TvField(password, { password = it }, "Senha", modifier = Modifier.weight(1f), secret = true)
                         }
-                    } else TvField(m3u, { m3u = it }, "URL da lista M3U", "https://…", KeyboardType.Uri)
+                    } else TvField(m3u, { m3u = it }, "URL da lista M3U / M3U Plus", "https://…", KeyboardType.Uri)
                     ModernButton("ENTRAR NO DROPLAY", onClick = { if (method == 0) connect(PlaylistSource.Xtream(server, username, password)) else connect(PlaylistSource.M3u(m3u)) },
                         enabled = valid, modifier = Modifier.fillMaxWidth().height(50.dp))
                     error?.let { Text(it, color = Coral, fontSize = 13.sp, modifier = Modifier.clickable { clearError() }) }
@@ -167,6 +193,7 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
 private fun CatalogScreen(
     state: AppState, onOpen: (MediaEntry) -> Unit, onFavorite: (String) -> Unit,
     onDisconnect: () -> Unit, onRefreshInterval: (RefreshInterval) -> Unit, onRefresh: () -> Unit,
+    onAdultContent: (Boolean) -> Unit, onCinemaContent: (Boolean) -> Unit, onContentSort: (ContentSort) -> Unit,
     section: Section, onSection: (Section) -> Unit, category: String?, onCategory: (String?) -> Unit,
     query: String, onQuery: (String) -> Unit,
 ) {
@@ -175,8 +202,10 @@ private fun CatalogScreen(
         AnimatedContent(section, Modifier.weight(1f), label = "section") { selected ->
             when (selected) {
                 Section.HOME -> HomeContent(state, onOpen, onFavorite)
+                Section.KIDS -> KidsContent(state, onOpen, onFavorite)
+                Section.NATIONAL -> NationalContent(state, onOpen, onFavorite)
                 Section.SETTINGS -> SettingsContent(
-                    state.refreshInterval, state.lastRefreshMs, onRefreshInterval, onRefresh, onDisconnect
+                    state, onRefreshInterval, onRefresh, onAdultContent, onCinemaContent, onContentSort, onDisconnect
                 )
                 else -> CategoryContent(selected, state, query, onQuery, category, onCategory, onOpen, onFavorite)
             }
@@ -190,9 +219,14 @@ private fun CatalogScreen(
         Section.entries.forEach { item ->
             var focus by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth().onFocusChanged { focus = it.isFocused }.clip(RoundedCornerShape(10.dp))
-                .background(if (item == selected || focus) Color(0xFF25204D) else Color.Transparent)
+                .background(when {
+                    item == Section.NATIONAL && (item == selected || focus) -> Color(0xFF176B3A)
+                    item == Section.KIDS && (item == selected || focus) -> Color(0xFF5D3AC7)
+                    item == selected || focus -> Color(0xFF25204D)
+                    else -> Color.Transparent
+                })
                 .clickable { select(item) }.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(item.glyph, color = if (item == selected) Cyan else Color.White, fontSize = 17.sp)
+                Text(item.glyph, color = when (item) { Section.NATIONAL -> Color(0xFFFFD43B); Section.KIDS -> Color(0xFFFF8FCC); else -> if (item == selected) Cyan else Color.White }, fontSize = 17.sp)
                 Text(item.title, Modifier.padding(start = 11.dp), fontSize = 13.sp, fontWeight = if (item == selected) FontWeight.Bold else FontWeight.Normal)
             }
         }
@@ -200,16 +234,56 @@ private fun CatalogScreen(
 }
 
 @Composable private fun HomeContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
-    val entries = state.catalog.entries
+    val entries = state.visibleCatalog()
     val featured = entries.firstOrNull { it.kind != MediaKind.LIVE && !it.logo.isNullOrBlank() } ?: entries.firstOrNull()
-    val recent = state.history.map { record -> entries.firstOrNull { it.id == record.mediaId } ?: record.asMediaEntry() }.filter { it.url.isNotBlank() }
-    val groups = entries.filter { it.kind != MediaKind.LIVE }.groupBy { it.group }.entries.sortedByDescending { it.value.size }.take(6)
+    val recent = state.visibleHistory(entries)
+    val groups = entries.filter { it.kind != MediaKind.LIVE }.groupBy(CatalogOrganizer::category).entries.sortedByDescending { it.value.size }.take(6)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
         item { featured?.let { NetflixHero(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) } }
         if (recent.isNotEmpty()) item { PosterShelf("Continuar assistindo", recent.take(20), state, open, favorite) }
         groups.forEach { (name, items) -> item { PosterShelf(name, items.take(24), state, open, favorite) } }
         val live = entries.filter { it.kind == MediaKind.LIVE }.take(24)
         if (live.isNotEmpty()) item { PosterShelf("Ao vivo", live, state, open, favorite) }
+    }
+}
+
+@Composable private fun KidsContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
+    val kids = state.visibleCatalog().filter(CatalogOrganizer::isKids)
+    val cartoons = kids.filter(CatalogOrganizer::isCartoon)
+    val movies = kids.filter { it.kind == MediaKind.MOVIE && it !in cartoons }
+    val series = kids.filter { it.kind == MediaKind.SERIES && it !in cartoons }
+    val live = kids.filter { it.kind == MediaKind.LIVE }
+    LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF392080), Color(0xFF101B55), Navy))),
+        contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        item {
+            Column(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(Color(0xFF7C4DFF), Color(0xFFFF5FA2), Color(0xFFFFC857)))).padding(34.dp)) {
+                Text("MUNDO INFANTIL ★", fontSize = 34.sp, fontWeight = FontWeight.Black)
+                Text("Filmes, desenhos e canais para a família.", color = Color.White.copy(alpha = .9f))
+            }
+        }
+        if (movies.isNotEmpty()) item { PosterShelf("🍿 Filmes", movies, state, open, favorite) }
+        if (series.isNotEmpty()) item { PosterShelf("✨ Séries", series, state, open, favorite) }
+        if (cartoons.isNotEmpty()) item { PosterShelf("🎨 Desenhos animados", cartoons, state, open, favorite) }
+        if (live.isNotEmpty()) item { PosterShelf("📺 TV ao vivo infantil", live, state, open, favorite) }
+        if (kids.isEmpty()) item { EmptyMessage("A lista não identificou conteúdo infantil.") }
+    }
+}
+
+@Composable private fun NationalContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
+    val national = state.visibleCatalog().filter(CatalogOrganizer::isNational)
+    val movies = national.filter { it.kind == MediaKind.MOVIE }
+    val series = national.filter { it.kind == MediaKind.SERIES }
+    LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF063D24), Navy))),
+        contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
+        item {
+            Column(Modifier.fillMaxWidth().background(Brush.horizontalGradient(listOf(Color(0xFF07883F), Color(0xFFF4C430)))).padding(34.dp)) {
+                Text("DROPLAY NACIONAL", fontSize = 34.sp, fontWeight = FontWeight.Black)
+                Text("Produções brasileiras em destaque", color = Color(0xFF062D1C))
+            }
+        }
+        if (movies.isNotEmpty()) item { PosterShelf("Filmes brasileiros", movies, state, open, favorite) }
+        if (series.isNotEmpty()) item { PosterShelf("Séries brasileiras", series, state, open, favorite) }
+        if (national.isEmpty()) item { EmptyMessage("A lista não identificou produções nacionais.") }
     }
 }
 
@@ -243,44 +317,81 @@ private fun CatalogScreen(
     section: Section, state: AppState, query: String, onQuery: (String) -> Unit,
     category: String?, onCategory: (String?) -> Unit, open: (MediaEntry) -> Unit, favorite: (String) -> Unit,
 ) {
+    val searchFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(section) {
+        if (section == Section.SEARCH) {
+            delay(180)
+            searchFocus.requestFocus()
+            keyboard?.show()
+        }
+    }
+    val catalog = state.visibleCatalog()
     val all = when (section) {
-        Section.LIVE -> state.catalog.entries.filter { it.kind == MediaKind.LIVE }
-        Section.MOVIES -> state.catalog.entries.filter { it.kind == MediaKind.MOVIE }
-        Section.SERIES -> state.catalog.entries.filter { it.kind == MediaKind.SERIES }
-        Section.FAVORITES -> state.catalog.entries.filter { it.id in state.favorites }
-        Section.HISTORY -> state.history.map { r -> state.catalog.entries.firstOrNull { it.id == r.mediaId } ?: r.asMediaEntry() }.filter { it.url.isNotBlank() }
-        Section.SEARCH -> state.catalog.entries.filter { query.length > 1 && it.name.contains(query, true) }
+        Section.LIVE -> catalog.filter { it.kind == MediaKind.LIVE }
+        Section.MOVIES -> catalog.filter { it.kind == MediaKind.MOVIE }
+        Section.SERIES -> catalog.filter { it.kind == MediaKind.SERIES }
+        Section.FAVORITES -> catalog.filter { it.id in state.favorites }
+        Section.HISTORY -> state.visibleHistory(catalog)
+        Section.SEARCH -> catalog.filter { query.length > 1 && (it.name.contains(query, true) || it.group.contains(query, true)) }
         else -> emptyList()
     }
-    val categories = remember(all) { all.map { it.group }.filter(String::isNotBlank).distinct().sorted() }
-    val visible = if (category == null) all else all.filter { it.group == category }
+    val categories = when (section) {
+        Section.MOVIES -> listOf(CatalogOrganizer.RECENT, "Lançamentos ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)}") +
+            all.map(CatalogOrganizer::category).distinct().sorted() + "Todos"
+        Section.SERIES -> listOf(CatalogOrganizer.RELEASES) +
+            all.map(CatalogOrganizer::category).distinct().sortedWith(compareBy(::seriesCategoryRank, String::lowercase)) + "Todos"
+        Section.LIVE -> listOf("Todos") + all.map(CatalogOrganizer::category).distinct()
+            .sortedWith(compareBy({ if (it == CatalogOrganizer.FOOTBALL) 0 else 1 }, String::lowercase))
+        Section.FAVORITES -> listOf("Filmes", "Séries", "TV ao vivo")
+        else -> emptyList()
+    }.distinct()
+    val activeCategory = category ?: when (section) {
+        Section.MOVIES -> CatalogOrganizer.RECENT
+        Section.SERIES -> CatalogOrganizer.RELEASES
+        Section.FAVORITES -> "Filmes"
+        Section.LIVE -> "Todos"
+        else -> null
+    }
+    val selectedItems = when {
+        activeCategory == null || activeCategory == "Todos" -> all
+        section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT -> all.sortedByDescending { it.addedAt }
+            .let { sorted -> if ((sorted.firstOrNull()?.addedAt ?: 0L) > 0) sorted.take(100) else all.asReversed().take(100) }
+        section == Section.MOVIES && activeCategory.startsWith("Lançamentos ") -> all.filter(CatalogOrganizer::isCurrentYear)
+        section == Section.SERIES && activeCategory == CatalogOrganizer.RELEASES -> all.filter(CatalogOrganizer::isCurrentYear)
+        section == Section.FAVORITES && activeCategory == "Filmes" -> all.filter { it.kind == MediaKind.MOVIE }
+        section == Section.FAVORITES && activeCategory == "Séries" -> all.filter { it.kind == MediaKind.SERIES }
+        section == Section.FAVORITES && activeCategory == "TV ao vivo" -> all.filter { it.kind == MediaKind.LIVE }
+        else -> all.filter { CatalogOrganizer.category(it) == activeCategory }
+    }
+    val visible = CatalogOrganizer.sort(CatalogOrganizer.collapseMovieVariants(selectedItems), state.contentSort, state.playCounts)
     Column(Modifier.fillMaxSize().padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(section.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("${visible.size} títulos", color = Muted) }
-            if (section == Section.SEARCH) TvField(query, onQuery, "Buscar", modifier = Modifier.width(380.dp))
+            if (section == Section.SEARCH) TvField(query, onQuery, "Buscar filmes, séries e canais", modifier = Modifier.width(420.dp).focusRequester(searchFocus))
         }
-        if (section in listOf(Section.LIVE, Section.MOVIES, Section.SERIES) && categories.isNotEmpty()) {
+        if (section in listOf(Section.LIVE, Section.MOVIES, Section.SERIES, Section.FAVORITES) && categories.isNotEmpty()) {
             LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                item { CategoryTab("Todos", category == null) { onCategory(null) } }
-                items(categories) { name -> CategoryTab(name, category == name) { onCategory(name) } }
+                items(categories) { name -> CategoryTab(name, activeCategory == name, gold = name == CatalogOrganizer.FOOTBALL) { onCategory(name) } }
             }
         }
         if (visible.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (section == Section.SEARCH && query.length < 2) "Digite ao menos 2 caracteres" else "Nada por aqui ainda.", color = Muted) }
         else LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(32.dp, 4.dp, 32.dp, 50.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            items(visible, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) }
+            items(visible, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }, removable = section == Section.FAVORITES) }
         }
     }
 }
 
-@Composable private fun CategoryTab(text: String, selected: Boolean, click: () -> Unit) {
+@Composable private fun CategoryTab(text: String, selected: Boolean, gold: Boolean = false, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Surface(Modifier.onFocusChanged { focused = it.isFocused }.clickable(onClick = click), shape = RoundedCornerShape(50),
-        color = if (selected || focused) Color.White else Surface, contentColor = if (selected || focused) Navy else Color.White) {
+        color = when { gold -> Color(0xFFD4A017); selected || focused -> Color.White; else -> Surface },
+        contentColor = if (gold || selected || focused) Navy else Color.White) {
         Text(text, Modifier.padding(horizontal = 17.dp, vertical = 9.dp), fontSize = 12.sp, maxLines = 1)
     }
 }
 
-@Composable private fun PosterCard(item: MediaEntry, progress: WatchRecord?, favorite: Boolean, open: () -> Unit, fav: () -> Unit) {
+@Composable private fun PosterCard(item: MediaEntry, progress: WatchRecord?, favorite: Boolean, open: () -> Unit, fav: () -> Unit, removable: Boolean = false) {
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.width(150.dp).onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(9.dp))
         .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(9.dp)).background(Surface).clickable(onClick = open)) {
@@ -295,6 +406,9 @@ private fun CatalogScreen(
         }
         Text(item.name, Modifier.padding(9.dp, 8.dp, 9.dp, 2.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text(progress?.let { "Parou em ${timeLabel(it.positionMs)}" } ?: item.group, Modifier.padding(9.dp, 0.dp, 9.dp, 9.dp), color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (removable) TextButton(onClick = fav, Modifier.fillMaxWidth().height(34.dp), contentPadding = PaddingValues(2.dp)) {
+            Text("REMOVER", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -311,7 +425,8 @@ private fun CatalogScreen(
         Column(Modifier.fillMaxHeight().width(700.dp).padding(38.dp), verticalArrangement = Arrangement.Center) {
             BackButton(back)
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
-            Text(media.group, color = Cyan, fontSize = 13.sp); Spacer(Modifier.height(13.dp))
+            Text(listOfNotNull(CatalogOrganizer.category(media), media.year?.toString(), media.durationMs.takeIf { it > 0 }?.let(::timeLabel)).joinToString("  •  "), color = Cyan, fontSize = 13.sp)
+            Spacer(Modifier.height(13.dp))
             Text(media.description ?: "Pronto para assistir.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Você parou em ${timeLabel(it.positionMs)} de ${timeLabel(it.durationMs)}", Modifier.padding(top = 14.dp), color = Cyan) }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -367,21 +482,27 @@ private fun CatalogScreen(
         Column(Modifier.padding(horizontal = 16.dp).weight(1f)) {
             Text("${episode.episode ?: ""}. ${episode.name}", fontWeight = FontWeight.Bold, fontSize = 15.sp)
             Text(episode.description ?: progress?.let { "Parou em ${timeLabel(it.positionMs)}" } ?: "Episódio ${episode.episode ?: ""}", color = Muted, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+            if (episode.durationMs > 0) Text("Duração: ${timeLabel(episode.durationMs)}", color = Cyan, fontSize = 11.sp)
         }
         Text(if (progress != null) "Continuar  ▶" else "Assistir  ▶", color = if (focused) Cyan else Color.White, fontSize = 12.sp)
     }
 }
 
 @Composable private fun SettingsContent(
-    refreshInterval: RefreshInterval,
-    lastRefreshMs: Long,
+    state: AppState,
     setRefreshInterval: (RefreshInterval) -> Unit,
     refresh: () -> Unit,
+    setAdultContent: (Boolean) -> Unit,
+    setCinemaContent: (Boolean) -> Unit,
+    setContentSort: (ContentSort) -> Unit,
     disconnect: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(42.dp), verticalArrangement = Arrangement.spacedBy(23.dp)) {
-        Text("Configurações", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
-        Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+    var askPin by remember { mutableStateOf(false) }
+    var pin by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf(false) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(42.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        item { Text("Configurações", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black) }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Player DROPLAY", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -389,31 +510,68 @@ private fun CatalogScreen(
                 }
                 Text("ATIVO", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
-        }
-        Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+        } }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Text("Proteção de conteúdo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Conteúdo adulto (+18) fica oculto por padrão. A senha para liberar a exibição é 0000.", color = Muted)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (state.showAdultContent) "+18 visível" else "+18 bloqueado", Modifier.weight(1f), color = if (state.showAdultContent) Coral else Cyan, fontWeight = FontWeight.Bold)
+                    ModernButton(if (state.showAdultContent) "Ocultar +18" else "Desbloquear +18", {
+                        if (state.showAdultContent) setAdultContent(false) else { pin = ""; pinError = false; askPin = true }
+                    }, primary = false)
+                }
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("Filmes identificados como CINEMA", fontWeight = FontWeight.Bold); Text("Ocultos por padrão por normalmente terem baixa qualidade.", color = Muted, fontSize = 12.sp) }
+                    ModernButton(if (state.showCinemaContent) "Ocultar" else "Exibir", { setCinemaContent(!state.showCinemaContent) }, primary = false)
+                }
+            }
+        } }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Text("Organização do catálogo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Mais assistidos usa a quantidade de reproduções registrada neste aparelho.", color = Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    CategoryTab("Ano (mais novos)", state.contentSort == ContentSort.YEAR_DESC) { setContentSort(ContentSort.YEAR_DESC) }
+                    CategoryTab("Ordem alfabética", state.contentSort == ContentSort.ALPHABETICAL) { setContentSort(ContentSort.ALPHABETICAL) }
+                    CategoryTab("Mais assistidos", state.contentSort == ContentSort.MOST_WATCHED) { setContentSort(ContentSort.MOST_WATCHED) }
+                }
+            }
+        } }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Atualização da biblioteca", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text("Por padrão, a lista é baixada uma vez ao dia. O catálogo salvo abre imediatamente.", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    CategoryTab("Toda abertura", refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
-                    CategoryTab("1x ao dia", refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
-                    CategoryTab("1x por semana", refreshInterval == RefreshInterval.WEEKLY) { setRefreshInterval(RefreshInterval.WEEKLY) }
-                    CategoryTab("1x por mês", refreshInterval == RefreshInterval.MONTHLY) { setRefreshInterval(RefreshInterval.MONTHLY) }
+                    CategoryTab("Toda abertura", state.refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
+                    CategoryTab("1x ao dia", state.refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
+                    CategoryTab("1x por semana", state.refreshInterval == RefreshInterval.WEEKLY) { setRefreshInterval(RefreshInterval.WEEKLY) }
+                    CategoryTab("1x por mês", state.refreshInterval == RefreshInterval.MONTHLY) { setRefreshInterval(RefreshInterval.MONTHLY) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (lastRefreshMs > 0) "Última atualização: ${formatDate(lastRefreshMs)}" else "Ainda não atualizado", Modifier.weight(1f), color = Muted, fontSize = 12.sp)
+                    Text(if (state.lastRefreshMs > 0) "Última atualização: ${formatDate(state.lastRefreshMs)}" else "Ainda não atualizado", Modifier.weight(1f), color = Muted, fontSize = 12.sp)
                     ModernButton("↻  Atualizar agora", refresh, primary = false)
                 }
             }
-        }
-        Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+        } }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Conta e biblioteca", fontSize = 20.sp, fontWeight = FontWeight.Bold); Text("Sair para entrar com outra lista ou usuário.", color = Muted) }
                 ModernButton("Sair / trocar usuário", disconnect, danger = true)
             }
-        }
-        Text("DROPLAY 1.1.0  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp)
+        } }
+        item { Text("DROPLAY 1.2.0  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
     }
+    if (askPin) AlertDialog(onDismissRequest = { askPin = false }, title = { Text("Liberar conteúdo +18") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Digite a senha de quatro dígitos.", color = Muted)
+            TvField(pin, { pin = it.filter(Char::isDigit).take(4); pinError = false }, "Senha", keyboard = KeyboardType.NumberPassword, secret = true)
+            if (pinError) Text("Senha incorreta.", color = Coral)
+        }
+    }, confirmButton = { ModernButton("Liberar", {
+        if (pin == "0000") { setAdultContent(true); askPin = false } else pinError = true
+    }, enabled = pin.length == 4) }, dismissButton = { ModernButton("Cancelar", { askPin = false }, primary = false) })
 }
 
 @Composable private fun ResumeDialog(media: MediaEntry, record: WatchRecord, onDismiss: () -> Unit, onResume: () -> Unit, onRestart: () -> Unit) {
@@ -424,6 +582,19 @@ private fun CatalogScreen(
             if (record.durationMs > 0) LinearProgressIndicator(progress = { (record.positionMs.toFloat() / record.durationMs).coerceIn(0f, 1f) }, Modifier.fillMaxWidth(), color = Coral)
         }
     }, confirmButton = { ModernButton("Continuar", onResume) }, dismissButton = { ModernButton("Reiniciar", onRestart, primary = false) })
+}
+
+@Composable private fun VariantDialog(variants: List<MediaEntry>, onDismiss: () -> Unit, choose: (MediaEntry) -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Como deseja assistir?") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(CatalogOrganizer.movieTitleKey(variants.first()).replaceFirstChar(Char::uppercase), fontWeight = FontWeight.Bold)
+            Text("Este título possui mais de uma versão.", color = Muted)
+            variants.sortedBy(CatalogOrganizer::isSubtitled).forEach { item ->
+                ModernButton(if (CatalogOrganizer.isSubtitled(item)) "CC  Legendado" else "◉  Dublado", { choose(item) },
+                    primary = !CatalogOrganizer.isSubtitled(item), modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }, confirmButton = {}, dismissButton = { ModernButton("Cancelar", onDismiss, primary = false) })
 }
 
 @Composable private fun ModernButton(
@@ -455,6 +626,38 @@ private fun CatalogScreen(
 
 private fun AppState.progress(id: String) = history.firstOrNull {
     it.mediaId == id && (it.durationMs <= 0 || it.positionMs < it.durationMs - 30_000)
+}
+
+private fun AppState.visibleCatalog(): List<MediaEntry> = CatalogOrganizer.collapseMovieVariants(
+    CatalogOrganizer.visibleEntries(catalog.entries, showAdultContent, showCinemaContent)
+)
+
+private fun AppState.visibleHistory(visibleCatalog: List<MediaEntry>): List<MediaEntry> {
+    val visibleIds = visibleCatalog.mapTo(HashSet(), MediaEntry::id)
+    val hiddenSeriesIds = catalog.entries.asSequence()
+        .filter { it.kind == MediaKind.SERIES && it.id !in visibleIds }
+        .mapNotNull { it.seriesId }
+        .toSet()
+    return history.mapNotNull { record ->
+        visibleCatalog.firstOrNull { it.id == record.mediaId } ?: record.asMediaEntry().takeIf { fallback ->
+            fallback.url.isNotBlank() && record.parentSeriesId !in hiddenSeriesIds &&
+                CatalogOrganizer.visibleEntries(listOf(fallback), showAdultContent, showCinemaContent).isNotEmpty()
+        }
+    }
+}
+
+private fun seriesCategoryRank(value: String): Int {
+    val text = value.lowercase()
+    return when {
+        listOf("disney", "hbo", "max", "netflix", "prime", "amazon", "apple", "paramount").any(text::contains) -> 0
+        text.contains("dorama") -> 1
+        text.contains("novela") -> 2
+        else -> 3
+    }
+}
+
+@Composable private fun EmptyMessage(text: String) {
+    Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) { Text(text, color = Muted) }
 }
 
 @Composable private fun Brand(compact: Boolean = false) {

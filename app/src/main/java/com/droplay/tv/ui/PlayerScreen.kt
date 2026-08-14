@@ -40,6 +40,7 @@ import com.droplay.tv.data.MediaEntry
 import kotlinx.coroutines.delay
 
 private enum class TrackPanel { AUDIO, SUBTITLES }
+private enum class ControlTarget { BACK, ACTIONS }
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -77,6 +78,9 @@ fun PlayerScreen(
     var interaction by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var ghost by remember { mutableStateOf<String?>(null) }
     val rootFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    val favoriteFocus = remember { FocusRequester() }
+    var requestedFocus by remember { mutableStateOf<ControlTarget?>(null) }
 
     fun wake() { controls = true; interaction = System.currentTimeMillis() }
     fun seek(delta: Long) {
@@ -112,6 +116,16 @@ fun PlayerScreen(
     }
     LaunchedEffect(ghost) { if (ghost != null) { delay(700); ghost = null } }
     LaunchedEffect(Unit) { rootFocus.requestFocus() }
+    LaunchedEffect(controls, requestedFocus) {
+        if (controls) {
+            when (requestedFocus) {
+                ControlTarget.BACK -> backFocus.requestFocus()
+                ControlTarget.ACTIONS -> favoriteFocus.requestFocus()
+                null -> Unit
+            }
+            requestedFocus = null
+        }
+    }
 
     Box(
         Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable()
@@ -122,7 +136,8 @@ fun PlayerScreen(
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlFocused) false else { seek(15_000); true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                         if (controlFocused) false else { togglePlayback(); true }
-                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); false }
+                    KeyEvent.KEYCODE_DPAD_UP -> { wake(); requestedFocus = ControlTarget.BACK; true }
+                    KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); requestedFocus = ControlTarget.ACTIONS; true }
                     KeyEvent.KEYCODE_BACK -> { onBack(); true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(30_000); true }
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { seek(-30_000); true }
@@ -141,7 +156,8 @@ fun PlayerScreen(
 
         AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xA8000000), Color.Transparent, Color(0xE8000000))))) {
-                Column(Modifier.align(Alignment.TopStart).padding(30.dp)) {
+                PlayerBackControl(backFocus, { controlFocused = it; if (it) wake() }, onBack)
+                Column(Modifier.align(Alignment.TopStart).padding(start = 92.dp, top = 30.dp)) {
                     Text(media.name, fontSize = 23.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text(media.group, color = Muted, fontSize = 12.sp)
                 }
@@ -157,7 +173,7 @@ fun PlayerScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
                         Spacer(Modifier.weight(1f))
-                        MiniControl(if (favorite) "♥" else "♡", "Favorito", { controlFocused = it; if (it) wake() }, onFavorite)
+                        MiniControl(if (favorite) "♥" else "♡", "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus, onFavorite)
                         Spacer(Modifier.width(8.dp))
                         MiniControl("◉", "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
                         Spacer(Modifier.width(8.dp))
@@ -170,9 +186,21 @@ fun PlayerScreen(
     panel?.let { TrackDialog(player, it, onDismiss = { panel = null; controlFocused = false; wake() }) }
 }
 
-@Composable private fun MiniControl(icon: String, description: String, focus: (Boolean) -> Unit, click: () -> Unit) {
+@Composable private fun PlayerBackControl(requester: FocusRequester, focus: (Boolean) -> Unit, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    TextButton(onClick = click, modifier = Modifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+    TextButton(onClick = click, modifier = Modifier.alignForPlayerBack().focusRequester(requester)
+        .onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+        .size(48.dp).background(if (focused) Color.White else Color(0x7710152E), CircleShape)
+        .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
+        contentPadding = PaddingValues(0.dp)) { Text("←", color = if (focused) Navy else Color.White, fontSize = 25.sp) }
+}
+
+private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp, top = 24.dp)
+
+@Composable private fun MiniControl(icon: String, description: String, focus: (Boolean) -> Unit, requester: FocusRequester? = null, click: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val focusModifier = if (requester != null) Modifier.focusRequester(requester) else Modifier
+    TextButton(onClick = click, modifier = focusModifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .size(42.dp).graphicsLayer { scaleX = if (focused) 1.12f else 1f; scaleY = if (focused) 1.12f else 1f }
         .background(if (focused) Color.White else Color(0x6610152E), CircleShape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
