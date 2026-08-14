@@ -49,9 +49,10 @@ Para uma versão de distribuição assinada, configure uma keystore local (nunca
 ## Download pelo GitHub
 
 1. Crie um repositório e envie este projeto.
-2. A aba **Actions** produzirá um artefato `droplay-debug-apk` em cada push.
+2. A Action **Android CI** apenas testa o projeto; builds de debug não são distribuídos porque sua assinatura não permite atualizações públicas confiáveis.
 3. Antes da primeira publicação, configure os Secrets do repositório: `DROPLAY_KEYSTORE_B64` (keystore codificada em Base64), `DROPLAY_STORE_PASSWORD`, `DROPLAY_KEY_ALIAS` e `DROPLAY_KEY_PASSWORD`.
 4. Crie uma tag, por exemplo `git tag v1.0.0 && git push origin v1.0.0`. O workflow publicará uma Release com o APK otimizado e assinado automaticamente.
+5. Para instalar ou atualizar o DROPLAY, baixe o APK exclusivamente em **Releases**. Todas as versões de produção usam a mesma chave permanente.
 
 Exemplo de endereço final: `https://github.com/SEU_USUARIO/Droplay/releases/latest`.
 

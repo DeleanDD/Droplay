@@ -1,4 +1,4 @@
-name: Android APK
+name: Android CI
 
 on:
   push:
@@ -26,7 +26,3 @@ jobs:
         run: chmod +x gradlew
       - name: Build and test
         run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v7
-        with:
-          name: droplay-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
