@@ -1,7 +1,10 @@
 package com.droplay.tv.data
 
+import android.util.JsonReader
+import android.util.JsonToken
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.InputStreamReader
 import java.net.URLEncoder
 
 class XtreamClient(source: PlaylistSource.Xtream) {
@@ -22,25 +25,25 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         val vodCategories = categories("get_vod_categories")
         val seriesCategories = categories("get_series_categories")
         return buildList {
-            addAll(items("get_live_streams").map { o ->
+            forEachItem("get_live_streams") { o ->
                 val id = o.optString("stream_id")
-                MediaEntry("live:$id", o.optString("name", "Canal"), "$base/live/$user/$pass/$id.ts", MediaKind.LIVE,
-                    liveCategories[o.optString("category_id")] ?: "Ao vivo", o.optString("stream_icon").takeIf(String::isNotBlank), o.optString("epg_channel_id").takeIf(String::isNotBlank))
-            })
-            addAll(items("get_vod_streams").map { o ->
+                add(MediaEntry("live:$id", o.optString("name", "Canal"), "$base/live/$user/$pass/$id.ts", MediaKind.LIVE,
+                    liveCategories[o.optString("category_id")] ?: "Ao vivo", o.optString("stream_icon").takeIf(String::isNotBlank), o.optString("epg_channel_id").takeIf(String::isNotBlank)))
+            }
+            forEachItem("get_vod_streams") { o ->
                 val id = o.optString("stream_id"); val ext = o.optString("container_extension", "mp4")
-                MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
+                add(MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
                     vodCategories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
                     description = o.optString("plot").takeIf(String::isNotBlank), year = yearFrom(o),
-                    addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o))
-            })
-            addAll(items("get_series").map { o ->
+                    addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o)))
+            }
+            forEachItem("get_series") { o ->
                 val id = o.optString("series_id")
-                MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
+                add(MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
                     seriesCategories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
                     description = o.optString("plot").takeIf(String::isNotBlank), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
-                    year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") }))
-            })
+                    year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") })))
+            }
         }
     }
 
@@ -76,10 +79,45 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         )
     }
 
-    private fun categories(action: String) = items(action).associate { it.optString("category_id") to it.optString("category_name", "Outros") }
-    private fun items(action: String): List<JSONObject> {
-        val array = JSONArray(Network.text(api(action)))
-        return (0 until array.length()).map { array.getJSONObject(it) }
+    private fun categories(action: String): Map<String, String> = buildMap {
+        forEachItem(action) { put(it.optString("category_id"), it.optString("category_name", "Outros")) }
+    }
+
+    /**
+     * Xtream catalogs can contain tens of thousands of records. Reading each object
+     * directly from the response avoids keeping the complete JSON response and a
+     * second JSONArray copy in memory on low-memory Android TV devices.
+     */
+    private inline fun forEachItem(action: String, consume: (JSONObject) -> Unit) {
+        Network.open(api(action)).use { input ->
+            JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
+                reader.beginArray()
+                while (reader.hasNext()) consume(reader.readObject())
+                reader.endArray()
+            }
+        }
+    }
+
+    private fun JsonReader.readObject(): JSONObject {
+        val result = JSONObject()
+        beginObject()
+        while (hasNext()) result.put(nextName(), readValue())
+        endObject()
+        return result
+    }
+
+    private fun JsonReader.readValue(): Any = when (peek()) {
+        JsonToken.BEGIN_OBJECT -> readObject()
+        JsonToken.BEGIN_ARRAY -> JSONArray().also { array ->
+            beginArray()
+            while (hasNext()) array.put(readValue())
+            endArray()
+        }
+        JsonToken.STRING -> nextString()
+        JsonToken.NUMBER -> nextString()
+        JsonToken.BOOLEAN -> nextBoolean()
+        JsonToken.NULL -> { nextNull(); JSONObject.NULL }
+        else -> { skipValue(); JSONObject.NULL }
     }
     private fun imageFrom(o: JSONObject, key: String): String? {
         val value = o.opt(key)
