@@ -42,5 +42,19 @@ class CatalogOrganizerTest {
         assertEquals("Globo", CatalogOrganizer.category(entry("Globo Sudeste", MediaKind.LIVE, "Globo Sul")))
     }
 
+    @Test fun blocksBrasilParareloEverywhereAndPreparesViewsOnce() {
+        val blockedLive = entry("Canal de teste", MediaKind.LIVE, "CANAIS | BRASIL PARARELO")
+        val dubbed = entry("Meu Filme 2026", MediaKind.MOVIE, "Ação").copy(year = 2026)
+        val subtitled = entry("Meu Filme 2026 [L]", MediaKind.MOVIE, "Legendados").copy(year = 2026)
+        val prepared = CatalogOrganizer.prepare(listOf(blockedLive, dubbed, subtitled), showAdult = false, showCinema = false)
+        assertEquals(listOf(dubbed.id), prepared.entries.map(MediaEntry::id))
+        assertEquals(2, prepared.movieVariants[CatalogOrganizer.movieVariantKey(dubbed)]?.size)
+    }
+
+    @Test fun separatesBrazilianNovelsFromOtherSeries() {
+        assertTrue(CatalogOrganizer.isNovel(entry("Minha Novela", MediaKind.SERIES, "Novelas BR")))
+        assertFalse(CatalogOrganizer.isNovel(entry("Drama Turco", MediaKind.SERIES, "Novelas Turcas")))
+    }
+
     private fun entry(name: String, kind: MediaKind, group: String) = MediaEntry(name, name, "https://example.test/$name", kind, group)
 }

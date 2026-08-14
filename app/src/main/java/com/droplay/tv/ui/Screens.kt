@@ -1,7 +1,6 @@
 package com.droplay.tv.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,9 +45,9 @@ import java.text.DateFormat
 import java.util.Date
 
 private enum class Section(val title: String, val glyph: String) {
-    SEARCH("Buscar", "⌕"), HOME("Início", "⌂"), KIDS("Infantil", "★"), NATIONAL("Nacional", "◆"),
-    LIVE("Ao vivo", "●"), MOVIES("Filmes", "▶"), SERIES("Séries", "▤"),
-    FAVORITES("Minha lista", "♥"), HISTORY("Continuar", "↻"), SETTINGS("Configurações", "⚙")
+    SEARCH("Buscar", "⌕"), HOME("Início", "⌂"), KIDS("Infantil", "★"), MOVIES("Filmes", "▶"),
+    SERIES("Séries", "▤"), LIVE("Ao vivo", "●"), NATIONAL("Nacional", "◆"),
+    FAVORITES("Favoritos", "♥"), SETTINGS("Configurações", "⚙")
 }
 
 private data class PlaybackSession(val media: MediaEntry, val startAt: Long)
@@ -68,12 +67,11 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     val currentPlayback = playing
 
     fun start(media: MediaEntry, at: Long) {
-        viewModel.recordPlaybackStarted(media.id)
         playing = PlaybackSession(media, at)
+        viewModel.recordPlaybackStarted(media.id)
     }
     fun requestPlay(media: MediaEntry, offerVariants: Boolean = true) {
-        val allowed = CatalogOrganizer.visibleEntries(state.catalog.entries, state.showAdultContent, state.showCinemaContent)
-        val variants = CatalogOrganizer.variantsFor(media, allowed)
+        val variants = state.preparedCatalog.movieVariants[CatalogOrganizer.movieVariantKey(media)].orEmpty().ifEmpty { listOf(media) }
         if (offerVariants && variants.map(CatalogOrganizer::isSubtitled).distinct().size > 1) {
             variantChoice = variants
             return
@@ -199,24 +197,24 @@ private fun CatalogScreen(
 ) {
     Row(Modifier.fillMaxSize().background(Navy)) {
         NavigationRail(section, onSection, Modifier.width(178.dp))
-        AnimatedContent(section, Modifier.weight(1f), label = "section") { selected ->
-            when (selected) {
+        Box(Modifier.weight(1f)) {
+            when (section) {
                 Section.HOME -> HomeContent(state, onOpen, onFavorite)
                 Section.KIDS -> KidsContent(state, onOpen, onFavorite)
                 Section.NATIONAL -> NationalContent(state, onOpen, onFavorite)
                 Section.SETTINGS -> SettingsContent(
                     state, onRefreshInterval, onRefresh, onAdultContent, onCinemaContent, onContentSort, onDisconnect
                 )
-                else -> CategoryContent(selected, state, query, onQuery, category, onCategory, onOpen, onFavorite)
+                else -> CategoryContent(section, state, query, onQuery, category, onCategory, onOpen, onFavorite)
             }
         }
     }
 }
 
 @Composable private fun NavigationRail(selected: Section, select: (Section) -> Unit, modifier: Modifier) {
-    Column(modifier.fillMaxHeight().background(Color(0xFF080C22)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Brand(compact = true); Spacer(Modifier.height(17.dp))
-        Section.entries.forEach { item ->
+    LazyColumn(modifier.fillMaxHeight().background(Color(0xFF080C22)), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        item { Brand(compact = true); Spacer(Modifier.height(11.dp)) }
+        items(Section.entries) { item ->
             var focus by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth().onFocusChanged { focus = it.isFocused }.clip(RoundedCornerShape(10.dp))
                 .background(when {
@@ -234,25 +232,25 @@ private fun CatalogScreen(
 }
 
 @Composable private fun HomeContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
-    val entries = state.visibleCatalog()
-    val featured = entries.firstOrNull { it.kind != MediaKind.LIVE && !it.logo.isNullOrBlank() } ?: entries.firstOrNull()
-    val recent = state.visibleHistory(entries)
-    val groups = entries.filter { it.kind != MediaKind.LIVE }.groupBy(CatalogOrganizer::category).entries.sortedByDescending { it.value.size }.take(6)
+    val entries = state.preparedCatalog.entries
+    val featured = remember(entries) { entries.firstOrNull { it.kind != MediaKind.LIVE && !it.logo.isNullOrBlank() } ?: entries.firstOrNull() }
+    val recent = remember(entries, state.history, state.catalog.entries, state.showAdultContent, state.showCinemaContent) { state.visibleHistory(entries) }
+    val groups = state.preparedCatalog.homeShelves
+    val live = state.preparedCatalog.live.take(24)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
         item { featured?.let { NetflixHero(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) } }
         if (recent.isNotEmpty()) item { PosterShelf("Continuar assistindo", recent.take(20), state, open, favorite) }
         groups.forEach { (name, items) -> item { PosterShelf(name, items.take(24), state, open, favorite) } }
-        val live = entries.filter { it.kind == MediaKind.LIVE }.take(24)
         if (live.isNotEmpty()) item { PosterShelf("Ao vivo", live, state, open, favorite) }
     }
 }
 
 @Composable private fun KidsContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
-    val kids = state.visibleCatalog().filter(CatalogOrganizer::isKids)
-    val cartoons = kids.filter(CatalogOrganizer::isCartoon)
-    val movies = kids.filter { it.kind == MediaKind.MOVIE && it !in cartoons }
-    val series = kids.filter { it.kind == MediaKind.SERIES && it !in cartoons }
-    val live = kids.filter { it.kind == MediaKind.LIVE }
+    val prepared = state.preparedCatalog
+    val movies = prepared.kidsMovies
+    val series = prepared.kidsSeries
+    val cartoons = prepared.kidsCartoons
+    val live = prepared.kidsLive
     LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF392080), Color(0xFF101B55), Navy))),
         contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
@@ -265,14 +263,14 @@ private fun CatalogScreen(
         if (series.isNotEmpty()) item { PosterShelf("✨ Séries", series, state, open, favorite) }
         if (cartoons.isNotEmpty()) item { PosterShelf("🎨 Desenhos animados", cartoons, state, open, favorite) }
         if (live.isNotEmpty()) item { PosterShelf("📺 TV ao vivo infantil", live, state, open, favorite) }
-        if (kids.isEmpty()) item { EmptyMessage("A lista não identificou conteúdo infantil.") }
+        if (movies.isEmpty() && series.isEmpty() && cartoons.isEmpty() && live.isEmpty()) item { EmptyMessage("A lista não identificou conteúdo infantil.") }
     }
 }
 
 @Composable private fun NationalContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
-    val national = state.visibleCatalog().filter(CatalogOrganizer::isNational)
-    val movies = national.filter { it.kind == MediaKind.MOVIE }
-    val series = national.filter { it.kind == MediaKind.SERIES }
+    val movies = state.preparedCatalog.nationalMovies
+    val series = state.preparedCatalog.nationalSeries
+    val novels = state.preparedCatalog.nationalNovels
     LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF063D24), Navy))),
         contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
         item {
@@ -283,7 +281,8 @@ private fun CatalogScreen(
         }
         if (movies.isNotEmpty()) item { PosterShelf("Filmes brasileiros", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("Séries brasileiras", series, state, open, favorite) }
-        if (national.isEmpty()) item { EmptyMessage("A lista não identificou produções nacionais.") }
+        if (novels.isNotEmpty()) item { PosterShelf("Novelas", novels, state, open, favorite) }
+        if (movies.isEmpty() && series.isEmpty() && novels.isEmpty()) item { EmptyMessage("A lista não identificou produções nacionais.") }
     }
 }
 
@@ -305,10 +304,11 @@ private fun CatalogScreen(
 }
 
 @Composable private fun PosterShelf(title: String, entries: List<MediaEntry>, state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
+    val shelf = remember(entries) { entries.take(120) }
     Column(Modifier.padding(horizontal = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 5.dp)) {
-            items(entries, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) }
+            items(shelf, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) }
         }
     }
 }
@@ -326,26 +326,30 @@ private fun CatalogScreen(
             keyboard?.show()
         }
     }
-    val catalog = state.visibleCatalog()
-    val all = when (section) {
-        Section.LIVE -> catalog.filter { it.kind == MediaKind.LIVE }
-        Section.MOVIES -> catalog.filter { it.kind == MediaKind.MOVIE }
-        Section.SERIES -> catalog.filter { it.kind == MediaKind.SERIES }
-        Section.FAVORITES -> catalog.filter { it.id in state.favorites }
-        Section.HISTORY -> state.visibleHistory(catalog)
-        Section.SEARCH -> catalog.filter { query.length > 1 && (it.name.contains(query, true) || it.group.contains(query, true)) }
-        else -> emptyList()
+    var appliedQuery by remember { mutableStateOf(query) }
+    LaunchedEffect(query) { delay(180); appliedQuery = query }
+    val prepared = state.preparedCatalog
+    val catalog = prepared.entries
+    val all = remember(section, catalog, state.favorites, appliedQuery) {
+        when (section) {
+            Section.LIVE -> prepared.live
+            Section.MOVIES -> prepared.movies
+            Section.SERIES -> prepared.series
+            Section.FAVORITES -> catalog.filter { it.id in state.favorites }
+            Section.SEARCH -> catalog.filter { appliedQuery.length > 1 && (it.name.contains(appliedQuery, true) || it.group.contains(appliedQuery, true)) }
+            else -> emptyList()
+        }
     }
-    val categories = when (section) {
+    val categories = remember(section, all) { when (section) {
         Section.MOVIES -> listOf(CatalogOrganizer.RECENT, "Lançamentos ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)}") +
-            all.map(CatalogOrganizer::category).distinct().sorted() + "Todos"
+            prepared.categoryIndex[MediaKind.MOVIE].orEmpty().keys.sorted() + "Todos"
         Section.SERIES -> listOf(CatalogOrganizer.RELEASES) +
-            all.map(CatalogOrganizer::category).distinct().sortedWith(compareBy(::seriesCategoryRank, String::lowercase)) + "Todos"
-        Section.LIVE -> listOf("Todos") + all.map(CatalogOrganizer::category).distinct()
+            prepared.categoryIndex[MediaKind.SERIES].orEmpty().keys.sortedWith(compareBy(::seriesCategoryRank, String::lowercase)) + "Todos"
+        Section.LIVE -> listOf("Todos") + prepared.categoryIndex[MediaKind.LIVE].orEmpty().keys
             .sortedWith(compareBy({ if (it == CatalogOrganizer.FOOTBALL) 0 else 1 }, String::lowercase))
         Section.FAVORITES -> listOf("Filmes", "Séries", "TV ao vivo")
         else -> emptyList()
-    }.distinct()
+    }.distinct() }
     val activeCategory = category ?: when (section) {
         Section.MOVIES -> CatalogOrganizer.RECENT
         Section.SERIES -> CatalogOrganizer.RELEASES
@@ -353,18 +357,20 @@ private fun CatalogScreen(
         Section.LIVE -> "Todos"
         else -> null
     }
-    val selectedItems = when {
+    val selectedItems = remember(section, activeCategory, all) { when {
         activeCategory == null || activeCategory == "Todos" -> all
-        section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT -> all.sortedByDescending { it.addedAt }
-            .let { sorted -> if ((sorted.firstOrNull()?.addedAt ?: 0L) > 0) sorted.take(100) else all.asReversed().take(100) }
-        section == Section.MOVIES && activeCategory.startsWith("Lançamentos ") -> all.filter(CatalogOrganizer::isCurrentYear)
-        section == Section.SERIES && activeCategory == CatalogOrganizer.RELEASES -> all.filter(CatalogOrganizer::isCurrentYear)
+        section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT -> prepared.recentMovies
+        section == Section.MOVIES && activeCategory.startsWith("Lançamentos ") -> prepared.releaseMovies
+        section == Section.SERIES && activeCategory == CatalogOrganizer.RELEASES -> prepared.releaseSeries
         section == Section.FAVORITES && activeCategory == "Filmes" -> all.filter { it.kind == MediaKind.MOVIE }
         section == Section.FAVORITES && activeCategory == "Séries" -> all.filter { it.kind == MediaKind.SERIES }
         section == Section.FAVORITES && activeCategory == "TV ao vivo" -> all.filter { it.kind == MediaKind.LIVE }
-        else -> all.filter { CatalogOrganizer.category(it) == activeCategory }
-    }
-    val visible = CatalogOrganizer.sort(CatalogOrganizer.collapseMovieVariants(selectedItems), state.contentSort, state.playCounts)
+        section == Section.MOVIES -> prepared.categoryIndex[MediaKind.MOVIE]?.get(activeCategory).orEmpty()
+        section == Section.SERIES -> prepared.categoryIndex[MediaKind.SERIES]?.get(activeCategory).orEmpty()
+        section == Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE]?.get(activeCategory).orEmpty()
+        else -> emptyList()
+    } }
+    val visible = remember(selectedItems, state.contentSort, state.playCounts) { CatalogOrganizer.sort(selectedItems, state.contentSort, state.playCounts) }
     Column(Modifier.fillMaxSize().padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(section.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("${visible.size} títulos", color = Muted) }
@@ -561,7 +567,7 @@ private fun CatalogScreen(
                 ModernButton("Sair / trocar usuário", disconnect, danger = true)
             }
         } }
-        item { Text("DROPLAY 1.2.1  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
+        item { Text("DROPLAY 1.2.2  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
     }
     if (askPin) AlertDialog(onDismissRequest = { askPin = false }, title = { Text("Liberar conteúdo +18") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -628,18 +634,14 @@ private fun AppState.progress(id: String) = history.firstOrNull {
     it.mediaId == id && (it.durationMs <= 0 || it.positionMs < it.durationMs - 30_000)
 }
 
-private fun AppState.visibleCatalog(): List<MediaEntry> = CatalogOrganizer.collapseMovieVariants(
-    CatalogOrganizer.visibleEntries(catalog.entries, showAdultContent, showCinemaContent)
-)
-
 private fun AppState.visibleHistory(visibleCatalog: List<MediaEntry>): List<MediaEntry> {
-    val visibleIds = visibleCatalog.mapTo(HashSet(), MediaEntry::id)
+    val visibleById = visibleCatalog.associateBy(MediaEntry::id)
     val hiddenSeriesIds = catalog.entries.asSequence()
-        .filter { it.kind == MediaKind.SERIES && it.id !in visibleIds }
+        .filter { it.kind == MediaKind.SERIES && it.id !in visibleById }
         .mapNotNull { it.seriesId }
         .toSet()
     return history.mapNotNull { record ->
-        visibleCatalog.firstOrNull { it.id == record.mediaId } ?: record.asMediaEntry().takeIf { fallback ->
+        visibleById[record.mediaId] ?: record.asMediaEntry().takeIf { fallback ->
             fallback.url.isNotBlank() && record.parentSeriesId !in hiddenSeriesIds &&
                 CatalogOrganizer.visibleEntries(listOf(fallback), showAdultContent, showCinemaContent).isNotEmpty()
         }

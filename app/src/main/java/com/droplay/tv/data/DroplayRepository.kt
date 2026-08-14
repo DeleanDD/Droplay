@@ -10,10 +10,13 @@ import java.security.MessageDigest
 
 class DroplayRepository(context: Context) {
     private val prefs = context.getSharedPreferences("droplay_local", Context.MODE_PRIVATE)
-    private val cache = AtomicFile(File(context.filesDir, "catalog-v2.json"))
+    private val cache = AtomicFile(File(context.filesDir, "catalog-v3.jsonl"))
     private val rawPlaylist = AtomicFile(File(context.filesDir, "playlist-v1.m3u"))
 
-    init { File(context.filesDir, "catalog-v1.json").delete() }
+    init {
+        File(context.filesDir, "catalog-v1.json").delete()
+        File(context.filesDir, "catalog-v2.json").delete()
+    }
 
     fun savedSource(): PlaylistSource? = when (prefs.getString("source_type", null)) {
         "m3u" -> prefs.getString("m3u_url", null)?.let(PlaylistSource::M3u)
@@ -145,19 +148,28 @@ class DroplayRepository(context: Context) {
         if (!sourceMatches) return null
         if (requireFresh && (interval == RefreshInterval.EVERY_LAUNCH || age < 0 || age >= interval.durationMs)) return null
         return runCatching {
-            val root = cache.openRead().bufferedReader().use { JSONObject(it.readText()) }
-            val array = root.getJSONArray("entries")
-            Catalog((0 until array.length()).map { entryFromJson(array.getJSONObject(it)) })
+            val entries = ArrayList<MediaEntry>()
+            cache.openRead().bufferedReader().use { reader ->
+                require(reader.readLine() == "DROPLAY-CATALOG-3") { "Cache incompatível." }
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isNotBlank()) entries += entryFromJson(JSONObject(line))
+                }
+            }
+            Catalog(entries)
         }.getOrNull()?.takeIf { it.entries.isNotEmpty() }
     }
 
     private fun saveCatalog(source: PlaylistSource, entries: List<MediaEntry>) {
-        val root = JSONObject().put("version", 2).put("entries", JSONArray().apply { entries.forEach { put(entryToJson(it)) } })
         var stream: FileOutputStream? = null
         try {
             stream = cache.startWrite()
-            stream.write(root.toString().toByteArray(Charsets.UTF_8))
+            val writer = stream.bufferedWriter(Charsets.UTF_8)
+            writer.appendLine("DROPLAY-CATALOG-3")
+            entries.forEach { writer.appendLine(entryToJson(it).toString()) }
+            writer.flush()
             cache.finishWrite(stream)
+            stream = null
             val now = System.currentTimeMillis()
             prefs.edit().putLong("last_catalog_refresh", now).putString("catalog_source_key", sourceKey(source)).apply()
         } catch (error: Throwable) {

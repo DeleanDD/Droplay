@@ -21,6 +21,7 @@ data class AppState(
     val showCinemaContent: Boolean = false,
     val contentSort: ContentSort = ContentSort.YEAR_DESC,
     val playCounts: Map<String, Int> = emptyMap(),
+    val preparedCatalog: PreparedCatalog = PreparedCatalog(),
     val loading: Boolean = false,
     val error: String? = null,
 )
@@ -40,9 +41,13 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     fun connect(source: PlaylistSource, force: Boolean = false) {
         _state.value = _state.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { repository.load(source, force = force) } }
-                .onSuccess {
-                    _state.value = _state.value.copy(source = source, catalog = it, loading = false, lastRefreshMs = repository.lastRefresh())
+            val preferences = _state.value
+            runCatching { withContext(Dispatchers.IO) {
+                val catalog = repository.load(source, force = force)
+                catalog to CatalogOrganizer.prepare(catalog.entries, preferences.showAdultContent, preferences.showCinemaContent)
+            } }.onSuccess { (catalog, prepared) ->
+                    _state.value = _state.value.copy(source = source, catalog = catalog, preparedCatalog = prepared,
+                        loading = false, lastRefreshMs = repository.lastRefresh())
                     refreshEpgInBackground(source)
                 }
                 .onFailure { _state.value = _state.value.copy(loading = false, error = it.message ?: "Falha ao carregar a lista.") }
@@ -76,10 +81,12 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     fun setShowAdultContent(show: Boolean) {
         repository.setShowAdultContent(show)
         _state.value = _state.value.copy(showAdultContent = show)
+        rebuildPreparedCatalog(showAdult = show)
     }
     fun setShowCinemaContent(show: Boolean) {
         repository.setShowCinemaContent(show)
         _state.value = _state.value.copy(showCinemaContent = show)
+        rebuildPreparedCatalog(showCinema = show)
     }
     fun setContentSort(sort: ContentSort) {
         repository.setContentSort(sort)
@@ -87,6 +94,20 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     }
     fun recordPlaybackStarted(id: String) {
         _state.value = _state.value.copy(playCounts = repository.recordPlaybackStarted(id))
+    }
+
+    private fun rebuildPreparedCatalog(
+        showAdult: Boolean = _state.value.showAdultContent,
+        showCinema: Boolean = _state.value.showCinemaContent,
+    ) {
+        val catalog = _state.value.catalog
+        viewModelScope.launch {
+            val prepared = withContext(Dispatchers.Default) { CatalogOrganizer.prepare(catalog.entries, showAdult, showCinema) }
+            val current = _state.value
+            if (current.catalog === catalog && current.showAdultContent == showAdult && current.showCinemaContent == showCinema) {
+                _state.value = current.copy(preparedCatalog = prepared)
+            }
+        }
     }
     fun refreshCatalog() { _state.value.source?.let { connect(it, force = true) } }
     fun saveProgress(media: MediaEntry, position: Long, duration: Long) {
