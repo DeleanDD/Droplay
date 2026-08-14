@@ -10,7 +10,10 @@ import java.security.MessageDigest
 
 class DroplayRepository(context: Context) {
     private val prefs = context.getSharedPreferences("droplay_local", Context.MODE_PRIVATE)
-    private val cache = AtomicFile(File(context.filesDir, "catalog-v1.json"))
+    private val cache = AtomicFile(File(context.filesDir, "catalog-v2.json"))
+    private val rawPlaylist = AtomicFile(File(context.filesDir, "playlist-v1.m3u"))
+
+    init { File(context.filesDir, "catalog-v1.json").delete() }
 
     fun savedSource(): PlaylistSource? = when (prefs.getString("source_type", null)) {
         "m3u" -> prefs.getString("m3u_url", null)?.let(PlaylistSource::M3u)
@@ -58,11 +61,10 @@ class DroplayRepository(context: Context) {
             val epgUrl: String?
             when (source) {
                 is PlaylistSource.M3u -> {
-                    val body = Network.text(m3uPlusUrl(source.url))
-                    require(body.lineSequence().firstOrNull()?.trim()?.startsWith("#EXTM3U", true) == true) { "A URL não retornou uma lista M3U válida." }
-                    entries = M3uParser.parse(body)
-                    epgUrl = Regex("(?:x-tvg-url|url-tvg)=\"([^\"]+)\"", RegexOption.IGNORE_CASE)
-                        .find(body.lineSequence().first())?.groupValues?.getOrNull(1)
+                    downloadPlaylist(m3uPlusUrl(source.url))
+                    val parsed = rawPlaylist.openRead().bufferedReader().use(M3uParser::parseCatalog)
+                    entries = parsed.entries
+                    epgUrl = parsed.epgUrl
                 }
                 is PlaylistSource.Xtream -> {
                     entries = XtreamClient(source).load()
@@ -86,8 +88,10 @@ class DroplayRepository(context: Context) {
         ?.let { EpgParser.parse(it) }
         .orEmpty()
 
-    fun loadEpisodes(source: PlaylistSource, seriesId: String) =
-        if (source is PlaylistSource.Xtream) XtreamClient(source).episodes(seriesId) else emptyList()
+    fun loadEpisodes(source: PlaylistSource, seriesId: String): List<MediaEntry> = when (source) {
+        is PlaylistSource.Xtream -> XtreamClient(source).episodes(seriesId)
+        is PlaylistSource.M3u -> runCatching { rawPlaylist.openRead().bufferedReader().use { M3uParser.episodes(it, seriesId) } }.getOrDefault(emptyList())
+    }
 
     fun loadDetails(source: PlaylistSource, media: MediaEntry): MediaEntry =
         if (source is PlaylistSource.Xtream) XtreamClient(source).details(media) else media
@@ -131,6 +135,7 @@ class DroplayRepository(context: Context) {
         prefs.edit().remove("source_type").remove("m3u_url").remove("server").remove("username")
             .remove("password").remove("epg_url").remove("last_catalog_refresh").remove("catalog_source_key").apply()
         cache.delete()
+        rawPlaylist.delete()
     }
 
     private fun cachedCatalog(source: PlaylistSource, requireFresh: Boolean): Catalog? {
@@ -147,7 +152,7 @@ class DroplayRepository(context: Context) {
     }
 
     private fun saveCatalog(source: PlaylistSource, entries: List<MediaEntry>) {
-        val root = JSONObject().put("version", 1).put("entries", JSONArray().apply { entries.forEach { put(entryToJson(it)) } })
+        val root = JSONObject().put("version", 2).put("entries", JSONArray().apply { entries.forEach { put(entryToJson(it)) } })
         var stream: FileOutputStream? = null
         try {
             stream = cache.startWrite()
@@ -194,6 +199,27 @@ class DroplayRepository(context: Context) {
         if (!url.contains("get.php", ignoreCase = true) || Regex("[?&]type=", RegexOption.IGNORE_CASE).containsMatchIn(url)) return url
         val separator = if ('?' in url) '&' else '?'
         return "$url${separator}type=m3u_plus&output=ts"
+    }
+
+    private fun downloadPlaylist(url: String) {
+        var output: FileOutputStream? = null
+        try {
+            Network.open(url).buffered().use { input ->
+                input.mark(8_192)
+                val headerBuffer = ByteArray(8_192)
+                val read = input.read(headerBuffer)
+                val header = if (read > 0) String(headerBuffer, 0, read, Charsets.UTF_8).lineSequence().firstOrNull().orEmpty().trimStart('\uFEFF') else ""
+                require(header.startsWith("#EXTM3U", true)) { "A URL não retornou uma lista M3U válida." }
+                input.reset()
+                output = rawPlaylist.startWrite()
+                input.copyTo(output!!, DEFAULT_BUFFER_SIZE)
+                rawPlaylist.finishWrite(output!!)
+                output = null
+            }
+        } catch (error: Throwable) {
+            output?.let(rawPlaylist::failWrite)
+            throw error
+        }
     }
 
     private fun saveSource(source: PlaylistSource) = prefs.edit().apply {

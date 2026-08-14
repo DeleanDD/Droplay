@@ -23,7 +23,11 @@ object CatalogOrganizer {
             .any(text::contains)
     }
 
-    fun isCinema(item: MediaEntry): Boolean = item.kind == MediaKind.MOVIE && normalized(item.name).contains("cinema")
+    fun isCinema(item: MediaEntry): Boolean {
+        if (item.kind != MediaKind.MOVIE) return false
+        val name = normalized(item.name)
+        return normalized(item.group).contains("cinema") || name.contains("cinema") || Regex("(^|\\s|\\[)cam(\\]|\\s|$)").containsMatchIn(name)
+    }
 
     fun isKids(item: MediaEntry): Boolean {
         val text = normalized("${item.group} ${item.name}")
@@ -39,7 +43,9 @@ object CatalogOrganizer {
     fun isNational(item: MediaEntry): Boolean {
         if (item.kind == MediaKind.LIVE) return false
         val text = normalized("${item.group} ${item.name}")
-        return listOf("nacional", "brasil", "brasileir", "globoplay", "cinema nacional", "novela brasileira").any(text::contains)
+        val brazilianNovela = text.contains("novela") && listOf("turca", "mexic", "corean", "doramas").none(text::contains)
+        return listOf("nacional", "brasil", "brasileir", "globoplay", "sbt+", "cinema nacional", "novela brasileira").any(text::contains) ||
+            Regex("(^|\\s|[|/-])br($|\\s|[|/-])").containsMatchIn(text) || brazilianNovela
     }
 
     fun isSubtitled(item: MediaEntry): Boolean {
@@ -86,7 +92,7 @@ object CatalogOrganizer {
     fun isCurrentYear(item: MediaEntry): Boolean = yearOf(item) == Calendar.getInstance().get(Calendar.YEAR)
 
     fun cleanCategory(value: String, kind: MediaKind): String {
-        var clean = value.trim()
+        var clean = value.replace(Regex("[\\p{So}\\p{Co}\\uFE0F\\u200B\\u200D]"), " ").trim()
             .replace(Regex("(?i)^\\s*(filmes?|movies?|series?|séries?|canais?|tv|ao vivo|vod)\\s*[-:|•/]*\\s*"), "")
             .replace(Regex("(?i)\\s*[-:|•/]*\\s*(legendados?|dublados?)\\s*$"), "")
             .replace(Regex("[²³⁴⁵⁶⁷⁸⁹]+$"), "")
@@ -131,6 +137,7 @@ object CatalogOrganizer {
         "ficcao", "ficcao cientifica" -> "Ficção científica"
         "comedia" -> "Comédia"
         "animacao" -> "Animação"
+        "lancamento", "lancamentos" -> "Lançamentos"
         "documentario", "documentarios" -> "Documentários"
         "series" -> "Séries"
         else -> value.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.forLanguageTag("pt-BR")) else it.toString() }

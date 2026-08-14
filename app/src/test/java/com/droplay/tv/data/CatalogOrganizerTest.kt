@@ -18,6 +18,12 @@ class CatalogOrganizerTest {
         assertEquals(listOf("Filme comum"), visible.map(MediaEntry::name))
     }
 
+    @Test fun hidesCamMoviesAndRecognizesBrazilianGroups() {
+        assertTrue(CatalogOrganizer.isCinema(entry("Zootopia 2 [CAM]", MediaKind.MOVIE, "Cinema")))
+        assertTrue(CatalogOrganizer.isNational(entry("Minha Novela", MediaKind.SERIES, "Novelas BR")))
+        assertEquals("Lançamentos", CatalogOrganizer.cleanCategory("❖ Lancamentos²", MediaKind.MOVIE))
+    }
+
     @Test fun mergesCategoriesAndDubbedSubtitledVariants() {
         assertEquals("Ação", CatalogOrganizer.cleanCategory("FILMES | Ação²", MediaKind.MOVIE))
         assertEquals("Disney Plus", CatalogOrganizer.cleanCategory("Séries Disney Plus", MediaKind.SERIES))

@@ -6,6 +6,7 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 
 - login por Xtream Codes (`servidor`, `usuário`, `senha`);
 - importação de listas M3U/M3U8 e M3U Plus por URL, preferindo Plus em links Xtream `get.php`;
+- leitura incremental de listas grandes, com episódios M3U agrupados automaticamente por série e temporada;
 - canais ao vivo, filmes, séries e episódios;
 - EPG XMLTV nativo (inclusive `.gz`), quando informado pela fonte;
 - múltiplas faixas de áudio e legendas expostas pelo stream;

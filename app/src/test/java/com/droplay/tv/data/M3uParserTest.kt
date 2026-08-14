@@ -23,4 +23,34 @@ class M3uParserTest {
         assertEquals(7_200_000L, result[1].durationMs)
         assertTrue(result.map { it.id }.distinct().size == 2)
     }
+
+    @Test fun groupsM3uEpisodesAndCleansSourceDecorations() {
+        val source = """
+            #EXTM3U
+            #EXTINF:-1 tvg-name="Minha Série S01E01" tvg-logo="https://img.test/series.jpg" group-title="Séries ❖ Netflix ⭐",Minha Série S01E01
+            https://example.test/series/1.mp4
+            #EXTINF:-1 tvg-name="Minha Série S01E02" tvg-logo="https://img.test/series.jpg" group-title="Séries ❖ Netflix ⭐",Minha Série S01E02
+            https://example.test/series/2.mp4
+        """.trimIndent()
+        val catalog = M3uParser.parseCatalog(source.reader())
+        assertEquals(1, catalog.entries.size)
+        val series = catalog.entries.single()
+        assertEquals(MediaKind.SERIES, series.kind)
+        assertEquals("Minha Série", series.name)
+        assertEquals("Séries Netflix", series.group)
+        val episodes = M3uParser.episodes(source.reader(), series.seriesId!!)
+        assertEquals(listOf(1, 2), episodes.mapNotNull { it.episode })
+        assertEquals(listOf("Episódio 1", "Episódio 2"), episodes.map { it.name })
+    }
+
+    @Test fun findsTheMetadataDelimiterOutsideQuotedTitles() {
+        val source = """
+            #EXTM3U
+            #EXTINF:-1 tvg-name="Ano Novo, Vida Nova (2026)" group-title="❖ Acao²",Ano Novo, Vida Nova (2026)
+            https://example.test/movie.mp4
+        """.trimIndent()
+        val movie = M3uParser.parse(source).single()
+        assertEquals("Ano Novo, Vida Nova (2026)", movie.name)
+        assertEquals("Acao²", movie.group)
+    }
 }

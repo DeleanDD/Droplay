@@ -561,7 +561,7 @@ private fun CatalogScreen(
                 ModernButton("Sair / trocar usuário", disconnect, danger = true)
             }
         } }
-        item { Text("DROPLAY 1.2.0  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
+        item { Text("DROPLAY 1.2.1  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
     }
     if (askPin) AlertDialog(onDismissRequest = { askPin = false }, title = { Text("Liberar conteúdo +18") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
