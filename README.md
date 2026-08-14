@@ -23,6 +23,9 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 - cache incremental e catálogo pré-organizado para navegação rápida mesmo em listas muito grandes;
 - proteção +18 por senha, ocultação opcional de filmes `CINEMA` e ordenação por ano, A-Z ou mais assistidos;
 - áreas Infantil e Nacional, categorias consolidadas, busca integrada e Minha Lista organizada por tipo;
+- carrosséis de lançamentos no Início, Infantil e Nacional;
+- categorias ao vivo priorizadas para futebol, emissoras abertas, filmes, esportes e documentários;
+- leitura sob demanda e incremental de temporadas Xtream para evitar picos de memória;
 - release otimizado com R8 e remoção de recursos não usados.
 
 ## Gerar o APK

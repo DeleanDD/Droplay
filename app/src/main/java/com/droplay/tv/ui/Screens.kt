@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.droplay.tv.AppState
+import com.droplay.tv.BuildConfig
 import com.droplay.tv.DroplayViewModel
 import com.droplay.tv.R
 import com.droplay.tv.data.*
@@ -132,7 +134,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         )
     }
 
-    if (state.loading) LoadingOverlay("Carregando sua biblioteca…")
+    if (state.loading) LoadingOverlay(state.loadingMessage)
     resumeChoice?.let { (media, record) ->
         ResumeDialog(media, record, onDismiss = { resumeChoice = null }, onResume = {
             resumeChoice = null; start(media, record.positionMs)
@@ -155,9 +157,9 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF161E50), Navy), radius = 1000f))) {
         Row(Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 38.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Brand(); Text("Sua mídia. Sua tela.", fontSize = 36.sp, fontWeight = FontWeight.Bold)
-                Text("Adicione uma fonte que você tem autorização para acessar.", color = Muted, fontSize = 16.sp)
-                Text("Nenhum conteúdo acompanha o aplicativo.", color = Cyan, fontSize = 13.sp)
+                Brand(); Text("Sua mídia. Sua tela.", fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text("O DROPLAY é um player independente e não fornece, vende, aluga, empresta ou hospeda conteúdo.", color = Color.White, fontSize = 15.sp, lineHeight = 21.sp)
+                Text("Use apenas fontes que você tenha autorização para acessar. A origem, a disponibilidade e os direitos do catálogo são responsabilidade do provedor e do usuário.", color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
             }
             Surface(Modifier.width(500.dp), shape = RoundedCornerShape(24.dp), color = Color(0xE010152E)) {
                 Column(Modifier.padding(26.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
@@ -239,12 +241,14 @@ private fun CatalogScreen(
 
 @Composable private fun HomeContent(state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
     val entries = state.preparedCatalog.entries
-    val featured = remember(entries) { entries.firstOrNull { it.kind != MediaKind.LIVE && !it.logo.isNullOrBlank() } ?: entries.firstOrNull() }
+    val featured = remember(state.preparedCatalog.releaseMovies) {
+        state.preparedCatalog.releaseMovies.sortedWith(compareByDescending<MediaEntry> { it.addedAt }.thenBy { it.name }).take(5)
+    }
     val recent = remember(entries, state.history, state.catalog.entries, state.showAdultContent, state.showCinemaContent) { state.visibleHistory(entries) }
     val groups = state.preparedCatalog.homeShelves
     val live = state.preparedCatalog.live.take(24)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
-        item { featured?.let { NetflixHero(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) } }
+        if (featured.isNotEmpty()) item { FeaturedCarousel("DROPLAY DESTAQUE  •  LANÇAMENTOS 2026", featured, state, open, favorite) }
         if (recent.isNotEmpty()) item { PosterShelf("Continuar assistindo", recent.take(20), state, open, favorite) }
         groups.forEach { (name, items) -> item { PosterShelf(name, items.take(24), state, open, favorite) } }
         if (live.isNotEmpty()) item { PosterShelf("Ao vivo", live, state, open, favorite) }
@@ -257,6 +261,7 @@ private fun CatalogScreen(
     val series = prepared.kidsSeries
     val cartoons = prepared.kidsCartoons
     val live = prepared.kidsLive
+    val highlights = remember(movies) { newestReleases(movies, 3) }
     LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF392080), Color(0xFF101B55), Navy))),
         contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
@@ -265,6 +270,7 @@ private fun CatalogScreen(
                 Text("Filmes, desenhos e canais para a família.", color = Color.White.copy(alpha = .9f))
             }
         }
+        if (highlights.isNotEmpty()) item { FeaturedCarousel("DESTAQUES INFANTIS", highlights, state, open, favorite) }
         if (movies.isNotEmpty()) item { PosterShelf("🍿 Filmes", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("✨ Séries", series, state, open, favorite) }
         if (cartoons.isNotEmpty()) item { PosterShelf("🎨 Desenhos animados", cartoons, state, open, favorite) }
@@ -277,6 +283,7 @@ private fun CatalogScreen(
     val movies = state.preparedCatalog.nationalMovies
     val series = state.preparedCatalog.nationalSeries
     val novels = state.preparedCatalog.nationalNovels
+    val highlights = remember(movies) { newestReleases(movies, 3) }
     LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF063D24), Navy))),
         contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
         item {
@@ -285,6 +292,7 @@ private fun CatalogScreen(
                 Text("Produções brasileiras em destaque", color = Color(0xFF062D1C))
             }
         }
+        if (highlights.isNotEmpty()) item { FeaturedCarousel("LANÇAMENTOS NACIONAIS", highlights, state, open, favorite) }
         if (movies.isNotEmpty()) item { PosterShelf("Filmes brasileiros", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("Séries brasileiras", series, state, open, favorite) }
         if (novels.isNotEmpty()) item { PosterShelf("Novelas", novels, state, open, favorite) }
@@ -292,12 +300,38 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun NetflixHero(item: MediaEntry, progress: WatchRecord?, favorite: Boolean, play: () -> Unit, fav: () -> Unit) {
+@Composable private fun FeaturedCarousel(
+    title: String,
+    entries: List<MediaEntry>,
+    state: AppState,
+    open: (MediaEntry) -> Unit,
+    favorite: (String) -> Unit,
+) {
+    var index by remember(entries) { mutableIntStateOf(0) }
+    LaunchedEffect(entries) {
+        while (entries.size > 1) {
+            delay(6_500)
+            index = (index + 1) % entries.size
+        }
+    }
+    val item = entries[index.coerceIn(0, entries.lastIndex)]
+    Column {
+        NetflixHero(item, title, state.progress(item.id), item.id in state.favorites, { open(item) }, { favorite(item.id) })
+        if (entries.size > 1) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.Center) {
+            entries.indices.forEach { position ->
+                Box(Modifier.padding(horizontal = 3.dp).size(if (position == index) 24.dp else 8.dp, 3.dp)
+                    .background(if (position == index) Cyan else Color(0x55FFFFFF), RoundedCornerShape(4.dp)))
+            }
+        }
+    }
+}
+
+@Composable private fun NetflixHero(item: MediaEntry, eyebrow: String, progress: WatchRecord?, favorite: Boolean, play: () -> Unit, fav: () -> Unit) {
     Box(Modifier.fillMaxWidth().height(330.dp).background(Color(0xFF11152A))) {
         AsyncImage(item.backdrop ?: item.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.72f), contentScale = ContentScale.Crop, alpha = .72f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(alpha = .78f), Color.Transparent))))
         Column(Modifier.align(Alignment.CenterStart).padding(start = 40.dp).width(530.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("DROPLAY DESTAQUE", color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(eyebrow, color = Cyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(item.name, fontSize = 35.sp, fontWeight = FontWeight.Black, maxLines = 2)
             Text(item.description ?: item.group, color = Color(0xFFD4D7E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Assistido até ${timeLabel(it.positionMs)}", color = Cyan, fontSize = 13.sp) }
@@ -351,8 +385,8 @@ private fun CatalogScreen(
             prepared.categoryIndex[MediaKind.MOVIE].orEmpty().keys.sorted() + "Todos"
         Section.SERIES -> listOf(CatalogOrganizer.RELEASES) +
             prepared.categoryIndex[MediaKind.SERIES].orEmpty().keys.sortedWith(compareBy(::seriesCategoryRank, String::lowercase)) + "Todos"
-        Section.LIVE -> listOf("Todos") + prepared.categoryIndex[MediaKind.LIVE].orEmpty().keys
-            .sortedWith(compareBy({ if (it == CatalogOrganizer.FOOTBALL) 0 else 1 }, String::lowercase))
+        Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE].orEmpty().keys
+            .sortedWith(compareBy(::liveCategoryRank, String::lowercase)) + "Todos"
         Section.FAVORITES -> listOf("Filmes", "Séries", "TV ao vivo")
         else -> emptyList()
     }.distinct() }
@@ -360,7 +394,7 @@ private fun CatalogScreen(
         Section.MOVIES -> CatalogOrganizer.RECENT
         Section.SERIES -> CatalogOrganizer.RELEASES
         Section.FAVORITES -> "Filmes"
-        Section.LIVE -> "Todos"
+        Section.LIVE -> categories.firstOrNull { it == CatalogOrganizer.FOOTBALL } ?: categories.firstOrNull() ?: "Todos"
         else -> null
     }
     val selectedItems = remember(section, activeCategory, all) { when {
@@ -439,7 +473,7 @@ private fun CatalogScreen(
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text(listOfNotNull(CatalogOrganizer.category(media), media.year?.toString(), media.durationMs.takeIf { it > 0 }?.let(::timeLabel)).joinToString("  •  "), color = Cyan, fontSize = 13.sp)
             Spacer(Modifier.height(13.dp))
-            Text(media.description ?: "Pronto para assistir.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
+            Text(media.description ?: "Sinopse não informada pelo provedor.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Você parou em ${timeLabel(it.positionMs)} de ${timeLabel(it.durationMs)}", Modifier.padding(top = 14.dp), color = Cyan) }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play)
@@ -512,8 +546,15 @@ private fun CatalogScreen(
     var askPin by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(42.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item { Text("Configurações", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val topFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        listState.scrollToItem(0)
+        delay(100)
+        topFocus.requestFocus()
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(42.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        item { Text("Configurações", Modifier.focusRequester(topFocus).focusable(), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black) }
         item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -573,7 +614,7 @@ private fun CatalogScreen(
                 ModernButton("Sair / trocar usuário", disconnect, danger = true)
             }
         } }
-        item { Text("DROPLAY 1.2.2  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
+        item { Text("DROPLAY ${BuildConfig.VERSION_NAME}  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
     }
     if (askPin) AlertDialog(onDismissRequest = { askPin = false }, title = { Text("Liberar conteúdo +18") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -664,16 +705,40 @@ private fun seriesCategoryRank(value: String): Int {
     }
 }
 
+private fun liveCategoryRank(value: String): Int = when (value) {
+    CatalogOrganizer.FOOTBALL -> 0
+    "Globo" -> 1
+    "SBT" -> 2
+    "Band" -> 3
+    "Record" -> 4
+    "Filmes" -> 5
+    "Esportes" -> 6
+    "Documentários e curiosidades" -> 7
+    "Todos" -> Int.MAX_VALUE
+    else -> 20
+}
+
+private fun newestReleases(entries: List<MediaEntry>, limit: Int): List<MediaEntry> {
+    val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+    val releases = entries.filter { CatalogOrganizer.yearOf(it) == currentYear }
+    return (releases.ifEmpty { entries }).sortedWith(
+        compareByDescending<MediaEntry> { it.addedAt }
+            .thenByDescending { CatalogOrganizer.yearOf(it) ?: 0 }
+            .thenBy { it.name }
+    ).take(limit)
+}
+
 @Composable private fun EmptyMessage(text: String) {
     Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) { Text(text, color = Muted) }
 }
 
 @Composable private fun Brand(compact: Boolean = false) {
-    if (!compact) { Image(painterResource(R.drawable.droplay_logo), "Logo DROPLAY", Modifier.size(180.dp)); return }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(32.dp).background(Brush.linearGradient(listOf(Violet, Cyan)), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Text("▶", color = Navy) }
-        Text("DROPLAY", Modifier.padding(start = 8.dp), fontSize = 16.sp, fontWeight = FontWeight.Black)
-    }
+    Image(
+        painterResource(R.drawable.droplay_logo_new),
+        "Logo DROPLAY",
+        if (compact) Modifier.width(138.dp).height(65.dp) else Modifier.width(255.dp).height(205.dp),
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable private fun LoadingOverlay(text: String) {

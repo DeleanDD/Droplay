@@ -3,6 +3,7 @@ package com.droplay.tv.ui
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -37,6 +39,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.droplay.tv.data.MediaEntry
+import com.droplay.tv.R
 import kotlinx.coroutines.delay
 
 private enum class TrackPanel { AUDIO, SUBTITLES }
@@ -173,11 +176,11 @@ fun PlayerScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
                         Spacer(Modifier.weight(1f))
-                        MiniControl(if (favorite) "♥" else "♡", "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus, onFavorite)
+                        MiniControl(if (favorite) R.drawable.ic_player_favorite else R.drawable.ic_player_favorite_border, "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus, onFavorite)
                         Spacer(Modifier.width(8.dp))
-                        MiniControl("◉", "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
+                        MiniControl(R.drawable.ic_player_audio, "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
                         Spacer(Modifier.width(8.dp))
-                        MiniControl("CC", "Legendas", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.SUBTITLES; wake() }
+                        MiniControl(R.drawable.ic_player_cc, "Legendas", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.SUBTITLES; wake() }
                     }
                 }
             }
@@ -192,20 +195,22 @@ fun PlayerScreen(
         .onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .size(48.dp).background(if (focused) Color.White else Color(0x7710152E), CircleShape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
-        contentPadding = PaddingValues(0.dp)) { Text("←", color = if (focused) Navy else Color.White, fontSize = 25.sp) }
+        contentPadding = PaddingValues(0.dp)) {
+        Icon(painterResource(R.drawable.ic_player_back), "Voltar", tint = if (focused) Navy else Color.White, modifier = Modifier.size(24.dp))
+    }
 }
 
 private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp, top = 24.dp)
 
-@Composable private fun MiniControl(icon: String, description: String, focus: (Boolean) -> Unit, requester: FocusRequester? = null, click: () -> Unit) {
+@Composable private fun MiniControl(@DrawableRes icon: Int, description: String, focus: (Boolean) -> Unit, requester: FocusRequester? = null, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val focusModifier = if (requester != null) Modifier.focusRequester(requester) else Modifier
     TextButton(onClick = click, modifier = focusModifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .size(42.dp).graphicsLayer { scaleX = if (focused) 1.12f else 1f; scaleY = if (focused) 1.12f else 1f }
         .background(if (focused) Color.White else Color(0x6610152E), CircleShape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
-        Text(icon, fontSize = if (icon == "CC") 12.sp else 19.sp, color = if (focused) Navy else Color.White)
+        contentPadding = PaddingValues(0.dp)) {
+        Icon(painterResource(icon), description, tint = if (focused) Navy else Color.White, modifier = Modifier.size(21.dp))
     }
 }
 

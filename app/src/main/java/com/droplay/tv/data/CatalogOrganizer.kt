@@ -174,12 +174,14 @@ object CatalogOrganizer {
     private fun liveCategory(item: MediaEntry): String {
         val text = normalized("${item.group} ${item.name}")
         return when {
-            text.contains("futebol") -> FOOTBALL
+            listOf("futebol", "jogos principais", "jogo principal", "payperview", "pay per view", "pay-per-view", "ppv", "premiere", "brasileirao", "libertadores", "champions", "⚽")
+                .any(text::contains) -> FOOTBALL
             listOf("luta", "ufc", "mma", "boxe", "wrestling").any(text::contains) -> "Lutas"
-            listOf("esporte", "sport", "espn", "premiere").any(text::contains) -> "Esportes"
+            listOf("esporte", "sport", "espn").any(text::contains) -> "Esportes"
             listOf("document", "curiosidade", "discovery", "history", "animal planet").any(text::contains) -> "Documentários e curiosidades"
             listOf("infantil", "kids", "desenho", "cartoon", "gloob", "nick", "disney jr").any(text::contains) -> "Infantis"
             text.contains("telecine") -> "Telecine"
+            listOf("filme", "movie", "cinema", "hbo", "megapix", "studio universal", "space").any(text::contains) -> "Filmes"
             text.contains("globo") -> "Globo"
             text.contains("sbt") -> "SBT"
             text.contains("record") -> "Record"

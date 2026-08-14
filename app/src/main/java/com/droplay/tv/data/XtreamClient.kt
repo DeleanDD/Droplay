@@ -34,34 +34,66 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                 val id = o.optString("stream_id"); val ext = o.optString("container_extension", "mp4")
                 add(MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
                     vodCategories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
-                    description = o.optString("plot").takeIf(String::isNotBlank), year = yearFrom(o),
+                    description = descriptionFrom(o), year = yearFrom(o),
                     addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o)))
             }
             forEachItem("get_series") { o ->
                 val id = o.optString("series_id")
                 add(MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
                     seriesCategories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
-                    description = o.optString("plot").takeIf(String::isNotBlank), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
+                    description = descriptionFrom(o), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
                     year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") })))
             }
         }
     }
 
     fun episodes(seriesId: String): List<MediaEntry> {
-        val root = JSONObject(Network.text(api("get_series_info", "&series_id=${enc(seriesId)}")))
-        val seasons = root.optJSONObject("episodes") ?: return emptyList()
-        return seasons.keys().asSequence().flatMap { season ->
-            val array = seasons.optJSONArray(season) ?: JSONArray()
-            (0 until array.length()).asSequence().map { i ->
-                val o = array.getJSONObject(i); val id = o.optString("id"); val ext = o.optString("container_extension", "mp4")
-                val info = o.optJSONObject("info")
-                val episodeNumber = o.optInt("episode_num", i + 1)
-                MediaEntry("episode:$id", o.optString("title", "Episódio $episodeNumber"), "$base/series/$user/$pass/$id.$ext",
-                    MediaKind.MOVIE, "Temporada $season", logo = info?.optString("movie_image")?.takeIf(String::isNotBlank),
-                    description = info?.optString("plot")?.takeIf(String::isNotBlank), parentSeriesId = seriesId,
-                    season = season.toIntOrNull(), episode = episodeNumber, durationMs = durationMillis(info ?: o))
+        val result = ArrayList<MediaEntry>()
+        Network.open(api("get_series_info", "&series_id=${enc(seriesId)}")).use { input ->
+            JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    if (reader.nextName() == "episodes" && reader.peek() == JsonToken.BEGIN_OBJECT) {
+                        reader.beginObject()
+                        while (reader.hasNext()) {
+                            val seasonLabel = reader.nextName()
+                            val seasonNumber = seasonLabel.toIntOrNull() ?: Regex("\\d+").find(seasonLabel)?.value?.toIntOrNull()
+                            if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+                                reader.skipValue()
+                                continue
+                            }
+                            reader.beginArray()
+                            var index = 0
+                            while (reader.hasNext()) {
+                                val o = reader.readObject()
+                                val id = o.optString("id")
+                                val ext = o.optString("container_extension", "mp4")
+                                val info = o.optJSONObject("info") ?: JSONObject()
+                                val episodeNumber = o.optInt("episode_num", index + 1)
+                                result += MediaEntry(
+                                    id = "episode:$id",
+                                    name = o.optString("title", "Episódio $episodeNumber"),
+                                    url = "$base/series/$user/$pass/$id.$ext",
+                                    kind = MediaKind.MOVIE,
+                                    group = "Temporada $seasonLabel",
+                                    logo = firstText(info, "movie_image", "cover_big", "cover"),
+                                    description = descriptionFrom(info) ?: descriptionFrom(o),
+                                    parentSeriesId = seriesId,
+                                    season = seasonNumber,
+                                    episode = episodeNumber,
+                                    durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(o),
+                                )
+                                index++
+                            }
+                            reader.endArray()
+                        }
+                        reader.endObject()
+                    } else reader.skipValue()
+                }
+                reader.endObject()
             }
-        }.toList()
+        }
+        return result.sortedWith(compareBy<MediaEntry> { it.season ?: Int.MAX_VALUE }.thenBy { it.episode ?: Int.MAX_VALUE })
     }
 
     fun details(media: MediaEntry): MediaEntry {
@@ -71,8 +103,8 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         val info = root.optJSONObject("info") ?: JSONObject()
         val data = root.optJSONObject("movie_data") ?: JSONObject()
         return media.copy(
-            description = info.optString("plot").takeIf(String::isNotBlank) ?: media.description,
-            logo = info.optString("movie_image").takeIf(String::isNotBlank) ?: media.logo,
+            description = descriptionFrom(info) ?: descriptionFrom(data) ?: media.description,
+            logo = firstText(info, "movie_image", "cover_big", "cover") ?: media.logo,
             backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,
             year = yearFrom(info) ?: yearFrom(data) ?: media.year,
             durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(data).takeIf { it > 0 } ?: media.durationMs,
@@ -128,6 +160,10 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         }
     }
     private companion object {
+        fun firstText(o: JSONObject, vararg keys: String): String? = keys.asSequence()
+            .map { o.optString(it).trim() }
+            .firstOrNull { it.isNotBlank() && it != "null" }
+        fun descriptionFrom(o: JSONObject): String? = firstText(o, "plot", "description", "overview", "storyline", "tmdb_plot")
         fun enc(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
         fun epochMillis(value: String): Long = value.toLongOrNull()?.let { if (it < 10_000_000_000L) it * 1_000L else it } ?: 0L
         fun yearFrom(o: JSONObject): Int? = sequenceOf(o.optString("year"), o.optString("releaseDate"), o.optString("releasedate"), o.optString("name"))

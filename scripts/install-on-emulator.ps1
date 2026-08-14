@@ -1,5 +1,6 @@
 param(
-    [string]$Apk = "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug.apk"
+    [string]$Apk = "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug.apk",
+    [string]$Package = "com.droplay.tv.debug"
 )
 
 $adb = Get-Command adb -ErrorAction SilentlyContinue
@@ -19,5 +20,5 @@ if (-not (Test-Path $Apk)) {
 & $adbPath wait-for-device
 & $adbPath install -r $Apk
 if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar o APK no emulador." }
-& $adbPath shell am force-stop com.droplay.tv
-& $adbPath shell monkey -p com.droplay.tv -c android.intent.category.LEANBACK_LAUNCHER 1
+& $adbPath shell am force-stop $Package
+& $adbPath shell monkey -p $Package -c android.intent.category.LEANBACK_LAUNCHER 1

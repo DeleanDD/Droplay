@@ -40,6 +40,9 @@ class CatalogOrganizerTest {
         assertTrue(CatalogOrganizer.isNational(entry("Cidade de Deus", MediaKind.MOVIE, "Cinema nacional")))
         assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("Jogo de hoje", MediaKind.LIVE, "Futebol ao vivo")))
         assertEquals("Globo", CatalogOrganizer.category(entry("Globo Sudeste", MediaKind.LIVE, "Globo Sul")))
+        assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("PPV 01", MediaKind.LIVE, "PayPerView")))
+        assertEquals(CatalogOrganizer.FOOTBALL, CatalogOrganizer.category(entry("Canal 01", MediaKind.LIVE, "Jogos Principais")))
+        assertEquals("Filmes", CatalogOrganizer.category(entry("Canal Cinema", MediaKind.LIVE, "Canais Filmes")))
     }
 
     @Test fun blocksBrasilParareloEverywhereAndPreparesViewsOnce() {

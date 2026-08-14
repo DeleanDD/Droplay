@@ -1,7 +1,11 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="320dp" android:height="180dp" android:viewportWidth="320" android:viewportHeight="180">
-    <path android:fillColor="#05081B" android:pathData="M0,0h320v180h-320z"/>
-    <path android:fillColor="#7C3AED" android:pathData="M50,40h60v14h-46v72h46v14h-60z"/>
-    <path android:fillColor="#22D3EE" android:pathData="M78,66l44,24 -44,24z"/>
-    <path android:fillColor="#22D3EE" android:pathData="M122,50a44,44 0,0 1,0 80l-5,-13a30,30 0,0 0,0 -54z"/>
-    <path android:fillColor="#FFFFFF" android:pathData="M148,78h16c18,0 18,25 0,25h-16zM156,86v9h8c7,0 7,-9 0,-9zM179,78h9v25h-9zM198,78h21v8h-12v3h11v7h-11v7h-9zM225,78h9v17h13v8h-22zM252,78h9v25h-9z"/>
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size android:width="320dp" android:height="180dp" />
+            <gradient android:startColor="#05081B" android:endColor="#111B55" android:angle="0" />
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="205dp" android:height="170dp">
+        <bitmap android:src="@drawable/droplay_logo_new" android:gravity="fill" />
+    </item>
+</layer-list>

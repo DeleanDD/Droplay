@@ -48,6 +48,13 @@ class DroplayRepository(context: Context) {
 
     fun lastRefresh(): Long = prefs.getLong("last_catalog_refresh", 0L)
 
+    fun isRefreshDue(source: PlaylistSource): Boolean {
+        val interval = refreshInterval()
+        val age = System.currentTimeMillis() - lastRefresh()
+        val sourceMatches = prefs.getString("catalog_source_key", null) == sourceKey(source)
+        return !sourceMatches || interval == RefreshInterval.EVERY_LAUNCH || age < 0 || age >= interval.durationMs || !cache.baseFile.exists()
+    }
+
     fun showAdultContent(): Boolean = prefs.getBoolean("show_adult_content", false)
     fun setShowAdultContent(show: Boolean) { prefs.edit().putBoolean("show_adult_content", show).apply() }
     fun showCinemaContent(): Boolean = prefs.getBoolean("show_cinema_content", false)

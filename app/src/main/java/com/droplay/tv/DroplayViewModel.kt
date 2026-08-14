@@ -23,6 +23,7 @@ data class AppState(
     val playCounts: Map<String, Int> = emptyMap(),
     val preparedCatalog: PreparedCatalog = PreparedCatalog(),
     val loading: Boolean = false,
+    val loadingMessage: String = "Abrindo sua biblioteca…",
     val error: String? = null,
 )
 
@@ -39,7 +40,8 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
     init { repository.savedSource()?.let { connect(it) } }
 
     fun connect(source: PlaylistSource, force: Boolean = false) {
-        _state.value = _state.value.copy(loading = true, error = null)
+        val message = if (force || repository.isRefreshDue(source)) "Atualizando sua biblioteca…" else "Abrindo biblioteca salva…"
+        _state.value = _state.value.copy(loading = true, loadingMessage = message, error = null)
         viewModelScope.launch {
             val preferences = _state.value
             runCatching { withContext(Dispatchers.IO) {
@@ -65,7 +67,7 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
 
     suspend fun episodes(seriesId: String): List<MediaEntry> {
         val source = _state.value.source ?: return emptyList()
-        return withContext(Dispatchers.IO) { repository.loadEpisodes(source, seriesId) }
+        return runCatching { withContext(Dispatchers.IO) { repository.loadEpisodes(source, seriesId) } }.getOrDefault(emptyList())
     }
 
     suspend fun details(media: MediaEntry): MediaEntry {
