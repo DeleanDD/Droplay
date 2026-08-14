@@ -11,6 +11,12 @@ enum class RefreshInterval(val durationMs: Long) {
 
 enum class ContentSort { YEAR_DESC, ALPHABETICAL, MOST_WATCHED }
 
+data class SubtitleTrack(
+    val url: String,
+    val label: String? = null,
+    val language: String? = null,
+)
+
 data class MediaEntry(
     val id: String,
     val name: String,
@@ -28,6 +34,7 @@ data class MediaEntry(
     val year: Int? = null,
     val addedAt: Long = 0L,
     val durationMs: Long = 0L,
+    val subtitles: List<SubtitleTrack> = emptyList(),
 )
 
 data class EpgProgram(
@@ -54,10 +61,11 @@ data class WatchRecord(
     val group: String = "",
     val logo: String? = null,
     val parentSeriesId: String? = null,
+    val subtitles: List<SubtitleTrack> = emptyList(),
 ) {
     fun asMediaEntry() = MediaEntry(
         id = mediaId, name = name.ifBlank { "Conteúdo recente" }, url = url,
-        kind = kind, group = group, logo = logo, parentSeriesId = parentSeriesId,
+        kind = kind, group = group, logo = logo, parentSeriesId = parentSeriesId, subtitles = subtitles,
     )
 }
 

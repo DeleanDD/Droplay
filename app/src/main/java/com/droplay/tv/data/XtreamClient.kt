@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStreamReader
 import java.net.URLEncoder
+import java.net.URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -98,6 +99,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                                     season = seasonNumber,
                                     episode = episodeNumber,
                                     durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(o),
+                                    subtitles = subtitleTracks(info, o),
                                 )
                                 index++
                             }
@@ -124,6 +126,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,
             year = yearFrom(info) ?: yearFrom(data) ?: media.year,
             durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(data).takeIf { it > 0 } ?: media.durationMs,
+            subtitles = subtitleTracks(info, data, root).ifEmpty { media.subtitles },
         )
     }
 
@@ -174,6 +177,47 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             is String -> value.takeIf(String::isNotBlank)
             else -> null
         }
+    }
+
+    private fun subtitleTracks(vararg roots: JSONObject): List<SubtitleTrack> {
+        val tracks = ArrayList<SubtitleTrack>()
+        val keys = listOf("subtitles", "subtitle", "external_subtitles", "subtitles_list", "subtitle_url")
+        roots.forEach { root -> keys.forEach { key -> if (root.has(key)) collectSubtitles(root.opt(key), key, tracks) } }
+        return tracks.distinctBy { it.url }
+    }
+
+    private fun collectSubtitles(value: Any?, fallbackLabel: String?, output: MutableList<SubtitleTrack>) {
+        when (value) {
+            is JSONArray -> (0 until value.length()).forEach { collectSubtitles(value.opt(it), fallbackLabel, output) }
+            is JSONObject -> {
+                val rawUrl = firstText(value, "url", "file", "path", "src", "subtitle_url")
+                if (rawUrl != null) {
+                    resolvedSubtitleUrl(rawUrl)?.let { url ->
+                        output += SubtitleTrack(url, firstText(value, "label", "title", "name") ?: fallbackLabel,
+                            firstText(value, "language", "lang", "code"))
+                    }
+                } else {
+                    value.keys().forEach { key -> collectSubtitles(value.opt(key), key, output) }
+                }
+            }
+            is String -> {
+                val text = value.trim()
+                when {
+                    text.startsWith('[') -> runCatching { JSONArray(text) }.getOrNull()?.let { collectSubtitles(it, fallbackLabel, output) }
+                    text.startsWith('{') -> runCatching { JSONObject(text) }.getOrNull()?.let { collectSubtitles(it, fallbackLabel, output) }
+                    else -> resolvedSubtitleUrl(text)?.let { output += SubtitleTrack(it, fallbackLabel?.takeUnless { label -> label.startsWith("subtitle") }) }
+                }
+            }
+        }
+    }
+
+    private fun resolvedSubtitleUrl(raw: String): String? {
+        val value = raw.trim()
+        if (value.isBlank() || value.equals("null", true)) return null
+        val looksLikeSubtitle = value.startsWith("http://", true) || value.startsWith("https://", true) || value.startsWith('/') ||
+            Regex("(?i)\\.(srt|vtt|ass|ssa|ttml|dfxp)(?:\\?.*)?$").containsMatchIn(value)
+        if (!looksLikeSubtitle) return null
+        return runCatching { URI("$base/").resolve(value).toString() }.getOrDefault(value)
     }
     private companion object {
         fun firstText(o: JSONObject, vararg keys: String): String? = keys.asSequence()

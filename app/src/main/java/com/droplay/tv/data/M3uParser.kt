@@ -97,6 +97,8 @@ object M3uParser {
             description = attrs["tvg-description"] ?: attrs["description"],
             year = Regex("(?:19|20)\\d{2}").findAll(name).lastOrNull()?.value?.toIntOrNull(),
             durationMs = (attrs["tvg-duration"] ?: attrs["duration"])?.toLongOrNull()?.times(1_000L) ?: 0L,
+            subtitles = listOfNotNull(attrs["tvg-subtitle"] ?: attrs["subtitle"] ?: attrs["sub-file"])
+                .filter { it.isNotBlank() }.map { SubtitleTrack(it) },
         )
     }
 

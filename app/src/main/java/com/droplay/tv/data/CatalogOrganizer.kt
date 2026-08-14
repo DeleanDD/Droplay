@@ -206,17 +206,24 @@ object CatalogOrganizer {
         return false
     }
 
-    private fun canonicalCategory(value: String): String = when (normalized(value).replace(Regex("\\s+"), " ").trim()) {
-        "acao" -> "Ação"
-        "ficcao", "ficcao cientifica" -> "Ficção científica"
-        "comedia" -> "Comédia"
-        "animacao" -> "Animação"
-        "lancamento", "lancamentos" -> "Lançamentos"
-        "documentario", "documentarios" -> "Documentários"
-        "series" -> "Séries"
-        "disney plus", "disney +", "disney+", "disneyplus" -> "Disney Plus"
-        "apple tv plus", "apple tv +", "apple tv+", "appletv plus", "appletv+" -> "Apple TV+"
+    private fun canonicalCategory(value: String): String {
+        val key = normalized(value).replace(Regex("\\s+"), " ").trim()
+        return when {
+        key == "acao" -> "Ação"
+        key in setOf("ficcao", "ficcao cientifica") -> "Ficção científica"
+        key == "comedia" -> "Comédia"
+        key == "animacao" -> "Animação"
+        key in setOf("lancamento", "lancamentos") -> "Lançamentos"
+        key in setOf("documentario", "documentarios") -> "Documentários"
+        key == "series" -> "Séries"
+        key in setOf("disney plus", "disney +", "disney+", "disneyplus") -> "Disney Plus"
+        key in setOf("apple tv plus", "apple tv +", "apple tv+", "appletv plus", "appletv+") -> "Apple TV+"
+        key in setOf("paramount", "paramount plus", "paramount +", "paramount+", "paramountplus") -> "Paramount+"
+        key in setOf("amazon prime video", "amazon prime", "prime video", "primevideo") -> "Prime Video"
+        key in setOf("dorama", "doramas") -> "Doramas"
+        key.contains("novela") -> "Novelas"
         else -> value.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.forLanguageTag("pt-BR")) else it.toString() }
+        }
     }
 
     private fun yearFrom(value: String): Int? = Regex("(?:19|20)\\d{2}").findAll(value).lastOrNull()?.value?.toIntOrNull()

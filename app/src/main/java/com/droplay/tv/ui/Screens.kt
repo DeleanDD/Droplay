@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -148,7 +149,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     variantChoice?.let { variants ->
         VariantDialog(variants, onDismiss = { variantChoice = null }) { chosen ->
             variantChoice = null
-            requestPlay(chosen, offerVariants = false)
+            scope.launch { requestPlay(viewModel.details(chosen), offerVariants = false) }
         }
     }
 }
@@ -568,12 +569,14 @@ private fun CatalogScreen(
             AsyncImage(series.backdrop ?: series.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.65f), contentScale = ContentScale.Crop, alpha = .4f)
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.88f), Color.Transparent))))
             Column(Modifier.align(Alignment.CenterStart).padding(35.dp).width(650.dp)) {
-                BackButton(back, Modifier.focusRequester(initialFocus))
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BackButton(back, Modifier.focusRequester(initialFocus))
+                    SeriesFavoriteButton(series.id in state.favorites, fav)
+                }
                 Text(series.name, fontSize = 34.sp, fontWeight = FontWeight.Black)
                 Text(series.description ?: "Escolha uma temporada e um episódio.", color = Color(0xFFD2D6E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     lastEpisode?.let { ModernButton("▶  Continuar ${it.name}", { play(it) }) }
-                    ModernButton(if (series.id in state.favorites) "♥  Na minha lista" else "+  Minha lista", fav, primary = false)
                 }
             }
         }
@@ -750,6 +753,24 @@ private fun CatalogScreen(
 
 @Composable private fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     ModernButton("←  VOLTAR", onClick, primary = false, modifier = modifier)
+}
+
+@Composable private fun SeriesFavoriteButton(favorite: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.onFocusChanged { focused = it.isFocused }.size(42.dp)
+            .graphicsLayer { scaleX = if (focused) 1.1f else 1f; scaleY = if (focused) 1.1f else 1f }
+            .background(if (focused) Color.White else Color(0x441AFFFFFF), CircleShape)
+            .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x44FFFFFF), CircleShape),
+    ) {
+        Icon(
+            painterResource(if (favorite) R.drawable.ic_player_favorite else R.drawable.ic_player_favorite_border),
+            if (favorite) "Remover série dos favoritos" else "Adicionar série aos favoritos",
+            tint = if (focused) Navy else if (favorite) Coral else Color.White,
+            modifier = Modifier.size(21.dp),
+        )
+    }
 }
 
 private fun AppState.progress(id: String) = history.firstOrNull {

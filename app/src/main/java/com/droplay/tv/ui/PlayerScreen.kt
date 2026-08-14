@@ -1,6 +1,7 @@
 package com.droplay.tv.ui
 
 import android.view.KeyEvent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.annotation.DrawableRes
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
@@ -57,7 +59,7 @@ fun PlayerScreen(
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
-    val player = remember(media.url) {
+    val player = remember(media.url, media.subtitles) {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
@@ -65,7 +67,15 @@ fun PlayerScreen(
             .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
             .build()
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
-            setMediaItem(MediaItem.fromUri(media.url)); prepare()
+            val item = MediaItem.Builder().setUri(media.url)
+                .setSubtitleConfigurations(media.subtitles.map { subtitle ->
+                    MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url))
+                        .setMimeType(subtitleMimeType(subtitle.url))
+                        .setLabel(subtitle.label)
+                        .setLanguage(subtitle.language)
+                        .build()
+                }).build()
+            setMediaItem(item); prepare()
             if (resumeAt > 0) seekTo(resumeAt)
             setHandleAudioBecomingNoisy(true)
             playWhenReady = true
@@ -186,7 +196,7 @@ fun PlayerScreen(
             }
         }
     }
-    panel?.let { TrackDialog(player, it, onDismiss = { panel = null; controlFocused = false; wake() }) }
+    panel?.let { TrackDialog(player, media, it, onDismiss = { panel = null; controlFocused = false; wake() }) }
 }
 
 @Composable private fun PlayerBackControl(requester: FocusRequester, focus: (Boolean) -> Unit, click: () -> Unit) {
@@ -231,7 +241,7 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
 }
 
 @OptIn(UnstableApi::class)
-@Composable private fun TrackDialog(player: ExoPlayer, panel: TrackPanel, onDismiss: () -> Unit) {
+@Composable private fun TrackDialog(player: ExoPlayer, media: MediaEntry, panel: TrackPanel, onDismiss: () -> Unit) {
     val type = if (panel == TrackPanel.AUDIO) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
     val choices = player.currentTracks.groups.filter { it.type == type }.flatMap { group ->
         (0 until group.length).map { index -> Triple(group, index, group.getTrackFormat(index)) }
@@ -239,7 +249,12 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (panel == TrackPanel.AUDIO) "Faixa de áudio" else "Legendas") }, text = {
         Column(Modifier.widthIn(min = 420.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (panel == TrackPanel.SUBTITLES) TextButton(onClick = { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, true).build(); onDismiss() }) { Text("Desativadas") }
-            if (choices.isEmpty()) Text("Nenhuma faixa disponível neste conteúdo.", color = Muted)
+            if (choices.isEmpty()) Text(
+                if (panel == TrackPanel.SUBTITLES && com.droplay.tv.data.CatalogOrganizer.isSubtitled(media))
+                    "Esta versão é legendada, mas a legenda está incorporada à imagem e não pode ser ativada ou desativada."
+                else "Nenhuma faixa disponível neste conteúdo.",
+                color = Muted,
+            )
             choices.forEachIndexed { n, (group, index, format) ->
                 val label = listOfNotNull(format.label, format.language?.uppercase(), format.channelCount.takeIf { it > 0 }?.let { "$it canais" }).distinct().joinToString(" · ").ifBlank { "Faixa ${n + 1}" }
                 TextButton(onClick = {
@@ -249,6 +264,13 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
             }
         }
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
+}
+
+private fun subtitleMimeType(url: String): String = when (url.substringBefore('?').substringAfterLast('.').lowercase()) {
+    "vtt" -> MimeTypes.TEXT_VTT
+    "ass", "ssa" -> MimeTypes.TEXT_SSA
+    "ttml", "dfxp", "xml" -> MimeTypes.APPLICATION_TTML
+    else -> MimeTypes.APPLICATION_SUBRIP
 }
 
 private fun formatTime(ms: Long): String {

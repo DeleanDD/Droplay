@@ -5,6 +5,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class M3uParserTest {
+    @Test fun preservesExternalSubtitleFromM3uPlus() {
+        val item = M3uParser.parse("""#EXTM3U
+#EXTINF:-1 tvg-name="Filme" group-title="Filmes" tvg-subtitle="https://example.test/filme.srt",Filme [L]
+https://example.test/filme.mkv
+""").single()
+        assertEquals("https://example.test/filme.srt", item.subtitles.single().url)
+    }
     @Test fun parsesCommonExtendedM3u() {
         val source = """
             #EXTM3U x-tvg-url="https://example.test/epg.xml"
