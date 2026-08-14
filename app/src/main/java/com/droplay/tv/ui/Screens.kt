@@ -38,6 +38,8 @@ import com.droplay.tv.DroplayViewModel
 import com.droplay.tv.R
 import com.droplay.tv.data.*
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 private enum class Section(val title: String, val glyph: String) {
     HOME("Início", "⌂"), LIVE("Ao vivo", "●"), MOVIES("Filmes", "▶"), SERIES("Séries", "▤"),
@@ -106,6 +108,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         else -> CatalogScreen(
             state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
             onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
+            onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
             section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
             onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
         )
@@ -163,7 +166,7 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
 @Composable
 private fun CatalogScreen(
     state: AppState, onOpen: (MediaEntry) -> Unit, onFavorite: (String) -> Unit,
-    onDisconnect: () -> Unit,
+    onDisconnect: () -> Unit, onRefreshInterval: (RefreshInterval) -> Unit, onRefresh: () -> Unit,
     section: Section, onSection: (Section) -> Unit, category: String?, onCategory: (String?) -> Unit,
     query: String, onQuery: (String) -> Unit,
 ) {
@@ -172,7 +175,9 @@ private fun CatalogScreen(
         AnimatedContent(section, Modifier.weight(1f), label = "section") { selected ->
             when (selected) {
                 Section.HOME -> HomeContent(state, onOpen, onFavorite)
-                Section.SETTINGS -> SettingsContent(onDisconnect)
+                Section.SETTINGS -> SettingsContent(
+                    state.refreshInterval, state.lastRefreshMs, onRefreshInterval, onRefresh, onDisconnect
+                )
                 else -> CategoryContent(selected, state, query, onQuery, category, onCategory, onOpen, onFavorite)
             }
         }
@@ -367,16 +372,38 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun SettingsContent(disconnect: () -> Unit) {
+@Composable private fun SettingsContent(
+    refreshInterval: RefreshInterval,
+    lastRefreshMs: Long,
+    setRefreshInterval: (RefreshInterval) -> Unit,
+    refresh: () -> Unit,
+    disconnect: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(42.dp), verticalArrangement = Arrangement.spacedBy(23.dp)) {
         Text("Configurações", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
         Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Player DROPLAY", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("Media3 com HLS, DASH, RTSP e fallback entre decodificadores do aparelho.", color = Muted)
+                    Text("Media3 com HLS, DASH, RTSP e H.265/HEVC via hardware, com fallback entre decodificadores.", color = Muted)
                 }
                 Text("ATIVO", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+        Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Text("Atualização da biblioteca", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Por padrão, a lista é baixada uma vez ao dia. O catálogo salvo abre imediatamente.", color = Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    CategoryTab("Toda abertura", refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
+                    CategoryTab("1x ao dia", refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
+                    CategoryTab("1x por semana", refreshInterval == RefreshInterval.WEEKLY) { setRefreshInterval(RefreshInterval.WEEKLY) }
+                    CategoryTab("1x por mês", refreshInterval == RefreshInterval.MONTHLY) { setRefreshInterval(RefreshInterval.MONTHLY) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (lastRefreshMs > 0) "Última atualização: ${formatDate(lastRefreshMs)}" else "Ainda não atualizado", Modifier.weight(1f), color = Muted, fontSize = 12.sp)
+                    ModernButton("↻  Atualizar agora", refresh, primary = false)
+                }
             }
         }
         Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
@@ -448,3 +475,5 @@ private fun timeLabel(ms: Long): String {
     val total = ms.coerceAtLeast(0) / 1000; val h = total / 3600; val m = (total % 3600) / 60; val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
+
+private fun formatDate(timeMs: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(timeMs))

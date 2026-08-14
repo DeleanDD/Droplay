@@ -2,6 +2,13 @@ package com.droplay.tv.data
 
 enum class MediaKind { LIVE, MOVIE, SERIES }
 
+enum class RefreshInterval(val durationMs: Long) {
+    EVERY_LAUNCH(0L),
+    DAILY(24L * 60 * 60 * 1000),
+    WEEKLY(7L * 24 * 60 * 60 * 1000),
+    MONTHLY(30L * 24 * 60 * 60 * 1000),
+}
+
 data class MediaEntry(
     val id: String,
     val name: String,
