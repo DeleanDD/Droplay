@@ -148,9 +148,10 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
 
 @Composable
 private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (PlaylistSource) -> Unit) {
+    var method by remember { mutableIntStateOf(0) }
     var server by remember { mutableStateOf("") }; var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    val valid = server.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+    var password by remember { mutableStateOf("") }; var m3u by remember { mutableStateOf("") }
+    val valid = if (method == 0) server.isNotBlank() && username.isNotBlank() && password.isNotBlank() else m3u.startsWith("http")
     Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF161E50), Navy), radius = 1000f))) {
         Row(Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 38.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -161,13 +162,24 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
             Surface(Modifier.width(500.dp), shape = RoundedCornerShape(24.dp), color = Color(0xE010152E)) {
                 Column(Modifier.padding(26.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("Adicionar biblioteca", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("Conecte com os dados Xtream Codes do seu provedor.", color = Muted, fontSize = 13.sp)
-                    TvField(server, { server = it }, "Servidor", "http://servidor:porta", KeyboardType.Uri)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TvField(username, { username = it }, "Usuário", modifier = Modifier.weight(1f))
-                        TvField(password, { password = it }, "Senha", modifier = Modifier.weight(1f), secret = true)
+                        CategoryTab("Xtream Codes  •  Recomendado", method == 0) { method = 0 }
+                        CategoryTab("M3U Plus", method == 1) { method = 1 }
                     }
-                    ModernButton("ENTRAR NO DROPLAY", onClick = { connect(PlaylistSource.Xtream(server, username, password)) },
+                    if (method == 0) {
+                        Text("Usa as APIs nativas para carregar o catálogo com mais rapidez.", color = Muted, fontSize = 13.sp)
+                        TvField(server, { server = it }, "Servidor", "http://servidor:porta", KeyboardType.Uri)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TvField(username, { username = it }, "Usuário", modifier = Modifier.weight(1f))
+                            TvField(password, { password = it }, "Senha", modifier = Modifier.weight(1f), secret = true)
+                        }
+                    } else {
+                        Text("Compatibilidade opcional. Links Xtream get.php serão solicitados como M3U Plus.", color = Muted, fontSize = 13.sp)
+                        TvField(m3u, { m3u = it }, "URL M3U / M3U Plus", "https://…", KeyboardType.Uri)
+                    }
+                    ModernButton("ENTRAR NO DROPLAY", onClick = {
+                        connect(if (method == 0) PlaylistSource.Xtream(server, username, password) else PlaylistSource.M3u(m3u))
+                    },
                         enabled = valid, modifier = Modifier.fillMaxWidth().height(50.dp))
                     error?.let { Text(it, color = Coral, fontSize = 13.sp, modifier = Modifier.clickable { clearError() }) }
                 }

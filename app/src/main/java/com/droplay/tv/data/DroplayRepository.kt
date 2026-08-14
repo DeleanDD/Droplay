@@ -16,17 +16,22 @@ class DroplayRepository(context: Context) {
     init {
         File(context.filesDir, "catalog-v1.json").delete()
         File(context.filesDir, "catalog-v2.json").delete()
-        // A partir da 1.2.3 o catálogo automático usa somente Xtream Codes.
-        // Não tente reabrir uma M3U gigante salva por uma versão anterior.
-        if (prefs.getString("source_type", null) == "m3u") {
-            prefs.edit().remove("source_type").remove("m3u_url").remove("last_catalog_refresh")
-                .remove("catalog_source_key").apply()
-            cache.delete()
-            rawPlaylist.delete()
+        // Migração executada uma única vez: impede que uma M3U gigante salva nas
+        // versões antigas volte a bloquear a abertura. Novas M3U escolhidas
+        // explicitamente pelo usuário continuam suportadas como fonte secundária.
+        if (!prefs.getBoolean("legacy_m3u_migration_done", false)) {
+            if (prefs.getString("source_type", null) == "m3u") {
+                prefs.edit().remove("source_type").remove("m3u_url").remove("last_catalog_refresh")
+                    .remove("catalog_source_key").apply()
+                cache.delete()
+                rawPlaylist.delete()
+            }
+            prefs.edit().putBoolean("legacy_m3u_migration_done", true).apply()
         }
     }
 
     fun savedSource(): PlaylistSource? = when (prefs.getString("source_type", null)) {
+        "m3u" -> prefs.getString("m3u_url", null)?.takeIf(String::isNotBlank)?.let(PlaylistSource::M3u)
         "xtream" -> PlaylistSource.Xtream(
             prefs.getString("server", "").orEmpty(), prefs.getString("username", "").orEmpty(), prefs.getString("password", "").orEmpty()
         ).takeIf { it.server.isNotBlank() && it.username.isNotBlank() }
