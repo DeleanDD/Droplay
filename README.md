@@ -12,9 +12,9 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 - avanço/retrocesso por D-pad, barra rápida e teclas de mídia;
 - favoritos, histórico e retomada local;
 - catálogo por capas, páginas de detalhes, temporadas e episódios;
-- subcategorias em abas e escolha entre o player integrado e o VLC instalado;
+- subcategorias em abas e player integrado com fallback de codecs;
 - interface 10-foot premium, criada para controle remoto;
-- HLS, DASH e mídia progressiva via AndroidX Media3;
+- HLS, DASH, RTSP, mídia progressiva e fallback entre codecs do aparelho via AndroidX Media3;
 - release otimizado com R8 e remoção de recursos não usados.
 
 ## Gerar o APK
@@ -26,6 +26,16 @@ Requisitos: JDK 17 e Android SDK 36.
 ```
 
 O APK será criado em `app/build/outputs/apk/debug/app-debug.apk`.
+
+### Teste rápido no PC
+
+Crie uma única vez um dispositivo **Android TV** no Device Manager do Android Studio. Com o emulador aberto, arraste o APK para a tela ou execute:
+
+```powershell
+.\scripts\install-on-emulator.ps1
+```
+
+O script reinstala e abre o DROPLAY, preservando os dados para acelerar testes sucessivos.
 
 Para uma versão de distribuição assinada, configure uma keystore local (nunca envie as senhas ao GitHub), adicione a configuração de assinatura ao Gradle e execute `./gradlew assembleRelease`.
 

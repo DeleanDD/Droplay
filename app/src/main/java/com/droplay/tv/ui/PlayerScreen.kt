@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +32,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.droplay.tv.data.MediaEntry
@@ -51,9 +54,16 @@ fun PlayerScreen(
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val player = remember(media.url) {
-        ExoPlayer.Builder(context).build().apply {
+        val renderers = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+            .build()
+        ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
             setMediaItem(MediaItem.fromUri(media.url)); prepare()
             if (resumeAt > 0) seekTo(resumeAt)
+            setHandleAudioBecomingNoisy(true)
             playWhenReady = true
         }
     }
@@ -163,9 +173,11 @@ fun PlayerScreen(
 @Composable private fun MiniControl(icon: String, description: String, focus: (Boolean) -> Unit, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     TextButton(onClick = click, modifier = Modifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
-        .sizeIn(minWidth = 46.dp, minHeight = 38.dp).border(if (focused) 2.dp else 0.dp, Cyan, RoundedCornerShape(8.dp)),
+        .size(42.dp).graphicsLayer { scaleX = if (focused) 1.12f else 1f; scaleY = if (focused) 1.12f else 1f }
+        .background(if (focused) Color.White else Color(0x6610152E), CircleShape)
+        .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)) {
-        Text(icon, fontSize = if (icon == "CC") 13.sp else 20.sp, color = if (focused) Cyan else Color.White)
+        Text(icon, fontSize = if (icon == "CC") 12.sp else 19.sp, color = if (focused) Navy else Color.White)
     }
 }
 

@@ -1,10 +1,5 @@
 package com.droplay.tv.ui
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
@@ -25,11 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -53,7 +48,6 @@ private data class PlaybackSession(val media: MediaEntry, val startAt: Long)
 
 @Composable
 fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var detail by remember { mutableStateOf<MediaEntry?>(null) }
     var episodes by remember { mutableStateOf<List<MediaEntry>>(emptyList()) }
@@ -66,12 +60,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     val currentPlayback = playing
 
     fun start(media: MediaEntry, at: Long) {
-        if (state.playerEngine == PlayerEngine.VLC) {
-            if (!launchVlc(context, media, at)) {
-                Toast.makeText(context, "VLC não instalado. Abrindo com o player DROPLAY.", Toast.LENGTH_LONG).show()
-                playing = PlaybackSession(media, at)
-            }
-        } else playing = PlaybackSession(media, at)
+        playing = PlaybackSession(media, at)
     }
     fun requestPlay(media: MediaEntry) {
         val record = state.history.firstOrNull { it.mediaId == media.id }
@@ -91,8 +80,13 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         }
     }
 
-    BackHandler(enabled = playing != null || detail != null) {
-        if (playing != null) playing = null else detail = null
+    BackHandler(enabled = playing != null || detail != null || selectedCategory != null || selectedSection != Section.HOME) {
+        when {
+            playing != null -> playing = null
+            detail != null -> detail = null
+            selectedCategory != null -> selectedCategory = null
+            selectedSection != Section.HOME -> selectedSection = Section.HOME
+        }
     }
 
     when {
@@ -112,8 +106,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         else -> CatalogScreen(
             state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
             onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
-            onPlayerEngine = viewModel::setPlayerEngine, section = selectedSection,
-            onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
+            section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
             onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
         )
     }
@@ -125,18 +118,6 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         }, onRestart = { resumeChoice = null; start(media, 0) })
     }
 }
-
-private fun launchVlc(context: Context, media: MediaEntry, position: Long): Boolean = try {
-    context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(Uri.parse(media.url), "video/*")
-        setPackage("org.videolan.vlc")
-        putExtra("title", media.name)
-        putExtra("position", position)
-        putExtra("from_start", position == 0L)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    })
-    true
-} catch (_: ActivityNotFoundException) { false }
 
 @Composable
 private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (PlaylistSource) -> Unit) {
@@ -155,8 +136,8 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
                 Column(Modifier.padding(26.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     Text("Adicionar biblioteca", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FilterChip(method == 0, { method = 0 }, { Text("Xtream Codes") })
-                        FilterChip(method == 1, { method = 1 }, { Text("Link M3U") })
+                        CategoryTab("Xtream Codes", method == 0) { method = 0 }
+                        CategoryTab("Link M3U", method == 1) { method = 1 }
                     }
                     if (method == 0) {
                         TvField(server, { server = it }, "Servidor", "http://servidor:porta")
@@ -165,8 +146,8 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
                             TvField(password, { password = it }, "Senha", modifier = Modifier.weight(1f), secret = true)
                         }
                     } else TvField(m3u, { m3u = it }, "URL da lista M3U", "https://…", KeyboardType.Uri)
-                    Button(onClick = { if (method == 0) connect(PlaylistSource.Xtream(server, username, password)) else connect(PlaylistSource.M3u(m3u)) },
-                        enabled = valid, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("ENTRAR NO DROPLAY", fontWeight = FontWeight.Bold) }
+                    ModernButton("ENTRAR NO DROPLAY", onClick = { if (method == 0) connect(PlaylistSource.Xtream(server, username, password)) else connect(PlaylistSource.M3u(m3u)) },
+                        enabled = valid, modifier = Modifier.fillMaxWidth().height(50.dp))
                     error?.let { Text(it, color = Coral, fontSize = 13.sp, modifier = Modifier.clickable { clearError() }) }
                 }
             }
@@ -182,7 +163,7 @@ private fun OnboardingScreen(error: String?, clearError: () -> Unit, connect: (P
 @Composable
 private fun CatalogScreen(
     state: AppState, onOpen: (MediaEntry) -> Unit, onFavorite: (String) -> Unit,
-    onDisconnect: () -> Unit, onPlayerEngine: (PlayerEngine) -> Unit,
+    onDisconnect: () -> Unit,
     section: Section, onSection: (Section) -> Unit, category: String?, onCategory: (String?) -> Unit,
     query: String, onQuery: (String) -> Unit,
 ) {
@@ -191,7 +172,7 @@ private fun CatalogScreen(
         AnimatedContent(section, Modifier.weight(1f), label = "section") { selected ->
             when (selected) {
                 Section.HOME -> HomeContent(state, onOpen, onFavorite)
-                Section.SETTINGS -> SettingsContent(state.playerEngine, onPlayerEngine, onDisconnect)
+                Section.SETTINGS -> SettingsContent(onDisconnect)
                 else -> CategoryContent(selected, state, query, onQuery, category, onCategory, onOpen, onFavorite)
             }
         }
@@ -237,8 +218,8 @@ private fun CatalogScreen(
             Text(item.description ?: item.group, color = Color(0xFFD4D7E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Assistido até ${timeLabel(it.positionMs)}", color = Cyan, fontSize = 13.sp) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = play) { Text(if (progress != null) "▶  Continuar" else "▶  Assistir") }
-                OutlinedButton(onClick = fav) { Text(if (favorite) "♥  Minha lista" else "+  Minha lista") }
+                ModernButton(if (progress != null) "▶  Continuar" else "▶  Assistir", play)
+                ModernButton(if (favorite) "♥  Minha lista" else "+  Minha lista", fav, primary = false)
             }
         }
     }
@@ -246,7 +227,7 @@ private fun CatalogScreen(
 
 @Composable private fun PosterShelf(title: String, entries: List<MediaEntry>, state: AppState, open: (MediaEntry) -> Unit, favorite: (String) -> Unit) {
     Column(Modifier.padding(horizontal = 32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 5.dp)) {
             items(entries, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }) }
         }
@@ -270,7 +251,7 @@ private fun CatalogScreen(
     val visible = if (category == null) all else all.filter { it.group == category }
     Column(Modifier.fillMaxSize().padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(section.title, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("${visible.size} títulos", color = Muted) }
+            Column(Modifier.weight(1f)) { Text(section.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("${visible.size} títulos", color = Muted) }
             if (section == Section.SEARCH) TvField(query, onQuery, "Buscar", modifier = Modifier.width(380.dp))
         }
         if (section in listOf(Section.LIVE, Section.MOVIES, Section.SERIES) && categories.isNotEmpty()) {
@@ -323,14 +304,14 @@ private fun CatalogScreen(
         AsyncImage(media.backdrop ?: media.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.7f), contentScale = ContentScale.Crop, alpha = .38f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.94f), Color.Transparent))))
         Column(Modifier.fillMaxHeight().width(700.dp).padding(38.dp), verticalArrangement = Arrangement.Center) {
-            TextButton(onClick = back) { Text("← VOLTAR") }
+            BackButton(back)
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text(media.group, color = Cyan, fontSize = 13.sp); Spacer(Modifier.height(13.dp))
             Text(media.description ?: "Pronto para assistir.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Você parou em ${timeLabel(it.positionMs)} de ${timeLabel(it.durationMs)}", Modifier.padding(top = 14.dp), color = Cyan) }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = play) { Text(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir") }
-                OutlinedButton(onClick = fav) { Text(if (favorite) "♥  Na minha lista" else "+  Minha lista") }
+                ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play)
+                ModernButton(if (favorite) "♥  Na minha lista" else "+  Minha lista", fav, primary = false)
             }
         }
     }
@@ -346,12 +327,12 @@ private fun CatalogScreen(
             AsyncImage(series.backdrop ?: series.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.65f), contentScale = ContentScale.Crop, alpha = .4f)
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.88f), Color.Transparent))))
             Column(Modifier.align(Alignment.CenterStart).padding(35.dp).width(650.dp)) {
-                TextButton(onClick = back) { Text("← VOLTAR") }
+                BackButton(back)
                 Text(series.name, fontSize = 34.sp, fontWeight = FontWeight.Black)
                 Text(series.description ?: "Escolha uma temporada e um episódio.", color = Color(0xFFD2D6E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    lastEpisode?.let { Button(onClick = { play(it) }) { Text("▶  Continuar ${it.name}") } }
-                    OutlinedButton(onClick = fav) { Text(if (series.id in state.favorites) "♥  Na minha lista" else "+  Minha lista") }
+                    lastEpisode?.let { ModernButton("▶  Continuar ${it.name}", { play(it) }) }
+                    ModernButton(if (series.id in state.favorites) "♥  Na minha lista" else "+  Minha lista", fav, primary = false)
                 }
             }
         }
@@ -386,34 +367,25 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun SettingsContent(engine: PlayerEngine, setEngine: (PlayerEngine) -> Unit, disconnect: () -> Unit) {
+@Composable private fun SettingsContent(disconnect: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(42.dp), verticalArrangement = Arrangement.spacedBy(23.dp)) {
-        Text("Configurações", fontSize = 32.sp, fontWeight = FontWeight.Black)
+        Text("Configurações", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
         Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
-            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Player de vídeo", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Escolha o player padrão. O VLC precisa estar instalado na TV e será mantido atualizado pela loja.", color = Muted)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PlayerChoice("DROPLAY", "Player integrado, histórico e controles completos", engine == PlayerEngine.DROPLAY) { setEngine(PlayerEngine.DROPLAY) }
-                    PlayerChoice("VLC", "Abre no VLC instalado; a retomada fica a cargo do VLC", engine == PlayerEngine.VLC) { setEngine(PlayerEngine.VLC) }
+            Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Player DROPLAY", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("Media3 com HLS, DASH, RTSP e fallback entre decodificadores do aparelho.", color = Muted)
                 }
+                Text("ATIVO", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
         Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Conta e biblioteca", fontSize = 20.sp, fontWeight = FontWeight.Bold); Text("Sair para entrar com outra lista ou usuário.", color = Muted) }
-                Button(onClick = disconnect, colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Text("Sair / trocar usuário") }
+                ModernButton("Sair / trocar usuário", disconnect, danger = true)
             }
         }
         Text("DROPLAY 1.1.0  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp)
-    }
-}
-
-@Composable private fun PlayerChoice(title: String, subtitle: String, selected: Boolean, click: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Surface(Modifier.width(310.dp).onFocusChanged { focused = it.isFocused }.clickable(onClick = click)
-        .border(if (selected || focused) 2.dp else 1.dp, if (selected) Cyan else Color(0xFF343D62), RoundedCornerShape(12.dp)), shape = RoundedCornerShape(12.dp), color = if (selected) Color(0xFF202A51) else Navy) {
-        Column(Modifier.padding(17.dp)) { Text((if (selected) "●  " else "○  ") + title, fontWeight = FontWeight.Bold); Text(subtitle, color = Muted, fontSize = 11.sp) }
     }
 }
 
@@ -424,7 +396,34 @@ private fun CatalogScreen(
             Text("Você parou em ${timeLabel(record.positionMs)}${if (record.durationMs > 0) " de ${timeLabel(record.durationMs)}" else ""}.", color = Muted)
             if (record.durationMs > 0) LinearProgressIndicator(progress = { (record.positionMs.toFloat() / record.durationMs).coerceIn(0f, 1f) }, Modifier.fillMaxWidth(), color = Coral)
         }
-    }, confirmButton = { Button(onClick = onResume) { Text("Continuar") } }, dismissButton = { OutlinedButton(onClick = onRestart) { Text("Reiniciar") } })
+    }, confirmButton = { ModernButton("Continuar", onResume) }, dismissButton = { ModernButton("Reiniciar", onRestart, primary = false) })
+}
+
+@Composable private fun ModernButton(
+    text: String,
+    onClick: () -> Unit,
+    primary: Boolean = true,
+    danger: Boolean = false,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val container = when { danger -> Coral; primary -> Color.White; else -> Color(0x331AFFFFFF) }
+    val content = if (primary && !danger) Navy else Color.White
+    Button(
+        onClick = onClick, enabled = enabled,
+        modifier = modifier.onFocusChanged { focused = it.isFocused }.graphicsLayer {
+            scaleX = if (focused) 1.04f else 1f; scaleY = if (focused) 1.04f else 1f
+        }.border(if (focused) 2.dp else 0.dp, Cyan, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content,
+            disabledContainerColor = Color(0xFF31374E), disabledContentColor = Muted),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+    ) { Text(text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
+}
+
+@Composable private fun BackButton(onClick: () -> Unit) {
+    ModernButton("←  VOLTAR", onClick, primary = false)
 }
 
 private fun AppState.progress(id: String) = history.firstOrNull {

@@ -1,7 +1,6 @@
 package com.droplay.tv.data
 
 enum class MediaKind { LIVE, MOVIE, SERIES }
-enum class PlayerEngine { DROPLAY, VLC }
 
 data class MediaEntry(
     val id: String,

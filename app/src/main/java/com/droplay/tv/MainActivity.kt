@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.droplay.tv.ui.DroplayApp
 import com.droplay.tv.ui.DroplayTheme
@@ -20,7 +22,11 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
-            DroplayTheme { DroplayApp(state, viewModel) }
+            DroplayTheme {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    DroplayApp(state, viewModel)
+                }
+            }
         }
     }
 }

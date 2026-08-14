@@ -42,10 +42,6 @@ class DroplayRepository(context: Context) {
         if (source is PlaylistSource.Xtream) XtreamClient(source).episodes(seriesId) else emptyList()
 
     fun favorites(): Set<String> = prefs.getStringSet("favorites", emptySet())?.toSet().orEmpty()
-    fun playerEngine(): PlayerEngine = runCatching {
-        PlayerEngine.valueOf(prefs.getString("player_engine", PlayerEngine.DROPLAY.name).orEmpty())
-    }.getOrDefault(PlayerEngine.DROPLAY)
-    fun setPlayerEngine(engine: PlayerEngine) { prefs.edit().putString("player_engine", engine.name).apply() }
     fun toggleFavorite(id: String): Set<String> {
         val changed = favorites().toMutableSet().apply { if (!add(id)) remove(id) }
         prefs.edit().putStringSet("favorites", changed).apply()
