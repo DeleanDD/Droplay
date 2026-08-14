@@ -523,11 +523,16 @@ private fun CatalogScreen(
 }
 
 @Composable private fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
+    val initialFocus = remember { FocusRequester() }
+    LaunchedEffect(media.id) {
+        delay(100)
+        initialFocus.requestFocus()
+    }
     Box(Modifier.fillMaxSize().background(Navy)) {
         AsyncImage(media.backdrop ?: media.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.7f), contentScale = ContentScale.Crop, alpha = .38f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.94f), Color.Transparent))))
         Column(Modifier.fillMaxHeight().width(700.dp).padding(38.dp), verticalArrangement = Arrangement.Center) {
-            BackButton(back)
+            BackButton(back, Modifier.focusRequester(initialFocus))
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text(listOfNotNull(CatalogOrganizer.category(media), media.year?.toString(), media.durationMs.takeIf { it > 0 }?.let(::timeLabel)).joinToString("  •  "), color = Cyan, fontSize = 13.sp)
             Spacer(Modifier.height(13.dp))
@@ -542,16 +547,28 @@ private fun CatalogScreen(
 }
 
 @Composable private fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
+    val initialFocus = remember { FocusRequester() }
+    var screenHasFocus by remember { mutableStateOf(false) }
     val seasons = episodes.mapNotNull { it.season }.distinct().sorted()
     val lastEpisode = state.history.firstOrNull { it.parentSeriesId == series.seriesId }?.let { h -> episodes.firstOrNull { it.id == h.mediaId } }
     var selectedSeason by remember(seasons, lastEpisode?.season) { mutableIntStateOf(lastEpisode?.season ?: seasons.firstOrNull() ?: 1) }
     val visible = episodes.filter { it.season == selectedSeason }
-    Column(Modifier.fillMaxSize().background(Navy)) {
+    LaunchedEffect(series.id) {
+        delay(100)
+        initialFocus.requestFocus()
+    }
+    LaunchedEffect(loading, episodes.isNotEmpty()) {
+        if (!loading && !screenHasFocus) {
+            delay(100)
+            initialFocus.requestFocus()
+        }
+    }
+    Column(Modifier.fillMaxSize().onFocusChanged { screenHasFocus = it.hasFocus }.background(Navy)) {
         Box(Modifier.fillMaxWidth().height(245.dp)) {
             AsyncImage(series.backdrop ?: series.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.65f), contentScale = ContentScale.Crop, alpha = .4f)
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.88f), Color.Transparent))))
             Column(Modifier.align(Alignment.CenterStart).padding(35.dp).width(650.dp)) {
-                BackButton(back)
+                BackButton(back, Modifier.focusRequester(initialFocus))
                 Text(series.name, fontSize = 34.sp, fontWeight = FontWeight.Black)
                 Text(series.description ?: "Escolha uma temporada e um episódio.", color = Color(0xFFD2D6E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -731,8 +748,8 @@ private fun CatalogScreen(
     ) { Text(text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
 }
 
-@Composable private fun BackButton(onClick: () -> Unit) {
-    ModernButton("←  VOLTAR", onClick, primary = false)
+@Composable private fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    ModernButton("←  VOLTAR", onClick, primary = false, modifier = modifier)
 }
 
 private fun AppState.progress(id: String) = history.firstOrNull {
