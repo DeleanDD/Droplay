@@ -120,7 +120,12 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         val root = JSONObject(Network.text(api("get_vod_info", "&vod_id=${enc(id)}")))
         val info = root.optJSONObject("info") ?: JSONObject()
         val data = root.optJSONObject("movie_data") ?: JSONObject()
+        val freshId = firstText(data, "stream_id", "id") ?: id
+        val currentExtension = media.url.substringBefore('?').substringAfterLast('/').substringAfterLast('.', "mp4")
+        val freshExtension = firstText(data, "container_extension")?.trimStart('.')?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) }
+            ?: currentExtension
         return media.copy(
+            url = "$base/movie/$user/$pass/$freshId.$freshExtension",
             description = descriptionFrom(info) ?: descriptionFrom(data) ?: media.description,
             logo = firstText(info, "movie_image", "cover_big", "cover") ?: media.logo,
             backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,

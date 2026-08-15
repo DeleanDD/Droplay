@@ -36,9 +36,13 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.droplay.tv.data.MediaEntry
 import com.droplay.tv.R
@@ -65,7 +69,15 @@ fun PlayerScreen(
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
             .build()
-        ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(45_000)
+            .setUserAgent("Mozilla/5.0 (Linux; Android TV) AppleWebKit/537.36 DROPLAY/1.2.12")
+            .setDefaultRequestProperties(mapOf("Accept" to "*/*", "Accept-Encoding" to "identity"))
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)
+        ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).setMediaSourceFactory(mediaSourceFactory).build().apply {
             setMediaItem(playerMediaItem(media)); prepare()
             if (resumeAt > 0) seekTo(resumeAt)
             setHandleAudioBecomingNoisy(true)
@@ -84,6 +96,7 @@ fun PlayerScreen(
     var activeExternalSubtitle by remember(media.url) { mutableStateOf<com.droplay.tv.data.SubtitleTrack?>(null) }
     var tracksRevision by remember { mutableIntStateOf(0) }
     var playbackError by remember { mutableStateOf<String?>(null) }
+    var retriedFromStart by remember(media.url) { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val backFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
@@ -118,6 +131,7 @@ fun PlayerScreen(
             override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 buffering = false
+                val status = httpStatusCode(error)
                 if (activeExternalSubtitle != null) {
                     val resumePosition = player.currentPosition.coerceAtLeast(0)
                     activeExternalSubtitle = null
@@ -125,8 +139,20 @@ fun PlayerScreen(
                     player.setMediaItem(playerMediaItem(media), resumePosition)
                     player.prepare()
                     player.playWhenReady = true
+                } else if (status == 416 && !retriedFromStart) {
+                    retriedFromStart = true
+                    player.setMediaItem(playerMediaItem(media), 0L)
+                    player.prepare()
+                    player.playWhenReady = true
                 } else {
-                    playbackError = "Não foi possível reproduzir este conteúdo (${error.errorCodeName})."
+                    playbackError = when (status) {
+                        401, 403 -> "O servidor recusou o acesso ao vídeo (HTTP $status). Atualize a biblioteca e tente novamente."
+                        404, 410 -> "O vídeo não está mais disponível nesse endereço (HTTP $status). Atualize a biblioteca."
+                        429 -> "O servidor limitou temporariamente as reproduções (HTTP 429). Aguarde e tente novamente."
+                        in 500..599 -> "O servidor de vídeo está indisponível no momento (HTTP $status)."
+                        null -> "Não foi possível reproduzir este conteúdo (${error.errorCodeName})."
+                        else -> "O servidor retornou HTTP $status e não entregou o vídeo."
+                    }
                 }
             }
         }
@@ -357,6 +383,15 @@ private fun subtitleMimeType(track: com.droplay.tv.data.SubtitleTrack): String =
     track.url.substringBefore('?').endsWith(".ass", true) || track.url.substringBefore('?').endsWith(".ssa", true) -> MimeTypes.TEXT_SSA
     track.url.substringBefore('?').let { it.endsWith(".ttml", true) || it.endsWith(".dfxp", true) || it.endsWith(".xml", true) } -> MimeTypes.APPLICATION_TTML
     else -> MimeTypes.APPLICATION_SUBRIP
+}
+
+private fun httpStatusCode(error: Throwable): Int? {
+    var cause: Throwable? = error
+    while (cause != null) {
+        if (cause is HttpDataSource.InvalidResponseCodeException) return cause.responseCode
+        cause = cause.cause
+    }
+    return null
 }
 
 private fun formatTime(ms: Long): String {
