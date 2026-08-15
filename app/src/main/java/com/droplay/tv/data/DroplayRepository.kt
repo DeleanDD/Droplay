@@ -2,15 +2,21 @@ package com.droplay.tv.data
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.JsonReader
+import android.util.JsonToken
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 import java.security.MessageDigest
 
 class DroplayRepository(context: Context) {
     private val prefs = context.getSharedPreferences("droplay_local", Context.MODE_PRIVATE)
     private val cache = AtomicFile(File(context.filesDir, "catalog-v3.jsonl"))
+    private val fastCache = AtomicFile(File(context.filesDir, "catalog-v4.bin"))
     private val rawPlaylist = AtomicFile(File(context.filesDir, "playlist-v1.m3u"))
 
     init {
@@ -167,6 +173,7 @@ class DroplayRepository(context: Context) {
         prefs.edit().remove("source_type").remove("m3u_url").remove("server").remove("username")
             .remove("password").remove("epg_url").remove("last_catalog_refresh").remove("catalog_source_key").apply()
         cache.delete()
+        fastCache.delete()
         rawPlaylist.delete()
     }
 
@@ -176,57 +183,65 @@ class DroplayRepository(context: Context) {
         val sourceMatches = prefs.getString("catalog_source_key", null) == sourceKey(source)
         if (!sourceMatches) return null
         if (requireFresh && (interval == RefreshInterval.EVERY_LAUNCH || age < 0 || age >= interval.durationMs)) return null
-        return runCatching {
-            val entries = ArrayList<MediaEntry>()
-            cache.openRead().bufferedReader().use { reader ->
-                require(reader.readLine() == "DROPLAY-CATALOG-3") { "Cache incompatível." }
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    if (line.isNotBlank()) entries += entryFromJson(JSONObject(line))
-                }
-            }
-            Catalog(entries)
-        }.getOrNull()?.takeIf { it.entries.isNotEmpty() }
+        readFastCatalog()?.let { return it }
+        return readLegacyCatalog()
     }
 
     private fun saveCatalog(source: PlaylistSource, entries: List<MediaEntry>) {
+        writeFastCatalog(entries)
+        cache.delete()
+        val now = System.currentTimeMillis()
+        prefs.edit().putLong("last_catalog_refresh", now).putString("catalog_source_key", sourceKey(source)).apply()
+    }
+
+    @Synchronized
+    fun ensureFastCache(source: PlaylistSource, entries: List<MediaEntry>) {
+        if (fastCache.baseFile.exists() || prefs.getString("catalog_source_key", null) != sourceKey(source)) return
+        writeFastCatalog(entries)
+        cache.delete()
+    }
+
+    private fun readLegacyCatalog(): Catalog? = runCatching {
+        if (!cache.baseFile.exists()) return@runCatching null
+        val input = cache.openRead()
+        val textReader = InputStreamReader(input, Charsets.UTF_8).buffered()
+        require(textReader.readLine() == "DROPLAY-CATALOG-3") { "Cache incompatível." }
+        val entries = ArrayList<MediaEntry>()
+        JsonReader(textReader).use { reader ->
+            reader.isLenient = true
+            while (reader.peek() != JsonToken.END_DOCUMENT) entries += reader.readMediaEntry()
+        }
+        Catalog(entries)
+    }.getOrNull()?.takeIf { it.entries.isNotEmpty() }
+
+    private fun readFastCatalog(): Catalog? = runCatching {
+        if (!fastCache.baseFile.exists()) return@runCatching null
+        DataInputStream(fastCache.openRead().buffered()).use { input ->
+            require(input.readInt() == FAST_CACHE_MAGIC && input.readInt() == FAST_CACHE_SCHEMA) { "Cache rápido incompatível." }
+            val count = input.readInt()
+            require(count in 1..500_000) { "Quantidade inválida no cache." }
+            Catalog(ArrayList<MediaEntry>(count).apply { repeat(count) { add(input.readMediaEntry()) } })
+        }
+    }.getOrNull()
+
+    @Synchronized
+    private fun writeFastCatalog(entries: List<MediaEntry>) {
         var stream: FileOutputStream? = null
         try {
-            stream = cache.startWrite()
-            val writer = stream.bufferedWriter(Charsets.UTF_8)
-            writer.appendLine("DROPLAY-CATALOG-3")
-            entries.forEach { writer.appendLine(entryToJson(it).toString()) }
-            writer.flush()
-            cache.finishWrite(stream)
+            stream = fastCache.startWrite()
+            val output = DataOutputStream(stream.buffered())
+            output.writeInt(FAST_CACHE_MAGIC)
+            output.writeInt(FAST_CACHE_SCHEMA)
+            output.writeInt(entries.size)
+            entries.forEach { output.writeMediaEntry(it) }
+            output.flush()
+            fastCache.finishWrite(stream)
             stream = null
-            val now = System.currentTimeMillis()
-            prefs.edit().putLong("last_catalog_refresh", now).putString("catalog_source_key", sourceKey(source)).apply()
         } catch (error: Throwable) {
-            stream?.let(cache::failWrite)
+            stream?.let(fastCache::failWrite)
             throw error
         }
     }
-
-    private fun entryToJson(item: MediaEntry) = JSONObject()
-        .put("id", item.id).put("name", item.name).put("url", item.url).put("kind", item.kind.name)
-        .put("group", item.group).put("logo", item.logo).put("epgId", item.epgId)
-        .put("description", item.description).put("backdrop", item.backdrop).put("seriesId", item.seriesId)
-        .put("parentSeriesId", item.parentSeriesId).put("season", item.season).put("episode", item.episode)
-        .put("year", item.year).put("addedAt", item.addedAt).put("durationMs", item.durationMs)
-        .put("subtitles", subtitlesToJson(item.subtitles))
-
-    private fun entryFromJson(json: JSONObject) = MediaEntry(
-        id = json.getString("id"), name = json.getString("name"), url = json.getString("url"),
-        kind = runCatching { MediaKind.valueOf(json.getString("kind")) }.getOrDefault(MediaKind.MOVIE),
-        group = json.optString("group", "Outros"), logo = json.textOrNull("logo"), epgId = json.textOrNull("epgId"),
-        description = json.textOrNull("description"), backdrop = json.textOrNull("backdrop"),
-        seriesId = json.textOrNull("seriesId"), parentSeriesId = json.textOrNull("parentSeriesId"),
-        season = json.optInt("season").takeIf { json.has("season") && !json.isNull("season") },
-        episode = json.optInt("episode").takeIf { json.has("episode") && !json.isNull("episode") },
-        year = json.optInt("year").takeIf { json.has("year") && !json.isNull("year") },
-        addedAt = json.optLong("addedAt"), durationMs = json.optLong("durationMs"),
-        subtitles = subtitlesFromJson(json.optJSONArray("subtitles")),
-    )
 
     private fun subtitlesToJson(tracks: List<SubtitleTrack>) = JSONArray().apply {
         tracks.forEach { put(JSONObject().put("url", it.url).put("label", it.label).put("language", it.language).put("mimeType", it.mimeType)) }
@@ -240,6 +255,93 @@ class DroplayRepository(context: Context) {
         }
 
     private fun JSONObject.textOrNull(key: String) = optString(key).takeIf { has(key) && !isNull(key) && it.isNotBlank() && it != "null" }
+
+    private fun DataOutputStream.writeMediaEntry(item: MediaEntry) {
+        writeText(item.id); writeText(item.name); writeText(item.url); writeText(item.kind.name)
+        writeText(item.group); writeNullableText(item.logo); writeNullableText(item.epgId)
+        writeNullableText(item.description); writeNullableText(item.backdrop); writeNullableText(item.seriesId)
+        writeNullableText(item.parentSeriesId); writeNullableInt(item.season); writeNullableInt(item.episode)
+        writeNullableInt(item.year); writeLong(item.addedAt); writeLong(item.durationMs)
+        writeInt(item.subtitles.size)
+        item.subtitles.forEach { subtitle ->
+            writeText(subtitle.url); writeNullableText(subtitle.label); writeNullableText(subtitle.language); writeNullableText(subtitle.mimeType)
+        }
+    }
+
+    private fun DataInputStream.readMediaEntry(): MediaEntry = MediaEntry(
+        id = readText(), name = readText(), url = readText(),
+        kind = runCatching { MediaKind.valueOf(readText()) }.getOrDefault(MediaKind.MOVIE),
+        group = readText(), logo = readNullableText(), epgId = readNullableText(),
+        description = readNullableText(), backdrop = readNullableText(), seriesId = readNullableText(),
+        parentSeriesId = readNullableText(), season = readNullableInt(), episode = readNullableInt(),
+        year = readNullableInt(), addedAt = readLong(), durationMs = readLong(),
+        subtitles = List(readInt().also { require(it in 0..100) }) {
+            SubtitleTrack(readText(), readNullableText(), readNullableText(), readNullableText())
+        },
+    )
+
+    private fun DataOutputStream.writeText(value: String) {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        writeInt(bytes.size); write(bytes)
+    }
+    private fun DataOutputStream.writeNullableText(value: String?) {
+        if (value == null) writeInt(-1) else writeText(value)
+    }
+    private fun DataInputStream.readText(): String {
+        val size = readInt(); require(size in 0..20_000_000) { "Texto inválido no cache." }
+        return ByteArray(size).also(::readFully).toString(Charsets.UTF_8)
+    }
+    private fun DataInputStream.readNullableText(): String? {
+        val size = readInt()
+        require(size in -1..20_000_000) { "Texto inválido no cache." }
+        if (size == -1) return null
+        return ByteArray(size).also(::readFully).toString(Charsets.UTF_8)
+    }
+    private fun DataOutputStream.writeNullableInt(value: Int?) { if (value == null) writeBoolean(false) else { writeBoolean(true); writeInt(value) } }
+    private fun DataInputStream.readNullableInt(): Int? = if (readBoolean()) readInt() else null
+
+    private fun JsonReader.readMediaEntry(): MediaEntry {
+        var id = ""; var name = ""; var url = ""; var kind = MediaKind.MOVIE; var group = "Outros"
+        var logo: String? = null; var epgId: String? = null; var description: String? = null; var backdrop: String? = null
+        var seriesId: String? = null; var parentSeriesId: String? = null; var season: Int? = null; var episode: Int? = null
+        var year: Int? = null; var addedAt = 0L; var durationMs = 0L; var subtitles = emptyList<SubtitleTrack>()
+        beginObject()
+        while (hasNext()) when (nextName()) {
+            "id" -> id = nextText().orEmpty(); "name" -> name = nextText().orEmpty(); "url" -> url = nextText().orEmpty()
+            "kind" -> kind = runCatching { MediaKind.valueOf(nextText().orEmpty()) }.getOrDefault(MediaKind.MOVIE)
+            "group" -> group = nextText() ?: "Outros"; "logo" -> logo = nextText(); "epgId" -> epgId = nextText()
+            "description" -> description = nextText(); "backdrop" -> backdrop = nextText(); "seriesId" -> seriesId = nextText()
+            "parentSeriesId" -> parentSeriesId = nextText(); "season" -> season = nextIntOrNull(); "episode" -> episode = nextIntOrNull()
+            "year" -> year = nextIntOrNull(); "addedAt" -> addedAt = nextLongOrNull() ?: 0L; "durationMs" -> durationMs = nextLongOrNull() ?: 0L
+            "subtitles" -> subtitles = readSubtitles()
+            else -> skipValue()
+        }
+        endObject()
+        return MediaEntry(id, name, url, kind, group, logo, epgId, description, backdrop, seriesId, parentSeriesId,
+            season, episode, year, addedAt, durationMs, subtitles)
+    }
+
+    private fun JsonReader.readSubtitles(): List<SubtitleTrack> {
+        if (peek() == JsonToken.NULL) { nextNull(); return emptyList() }
+        val result = ArrayList<SubtitleTrack>()
+        beginArray()
+        while (hasNext()) {
+            var url = ""; var label: String? = null; var language: String? = null; var mimeType: String? = null
+            beginObject()
+            while (hasNext()) when (nextName()) {
+                "url" -> url = nextText().orEmpty(); "label" -> label = nextText(); "language" -> language = nextText(); "mimeType" -> mimeType = nextText()
+                else -> skipValue()
+            }
+            endObject()
+            if (url.isNotBlank()) result += SubtitleTrack(url, label, language, mimeType)
+        }
+        endArray()
+        return result
+    }
+
+    private fun JsonReader.nextText(): String? = if (peek() == JsonToken.NULL) { nextNull(); null } else nextString()
+    private fun JsonReader.nextIntOrNull(): Int? = nextLongOrNull()?.toInt()
+    private fun JsonReader.nextLongOrNull(): Long? = if (peek() == JsonToken.NULL) { nextNull(); null } else nextString().toLongOrNull()
 
     private fun sourceKey(source: PlaylistSource): String {
         val raw = when (source) {
@@ -283,4 +385,9 @@ class DroplayRepository(context: Context) {
                 .putString("username", source.username).putString("password", source.password)
         }
     }.apply()
+
+    private companion object {
+        const val FAST_CACHE_MAGIC = 0x44525034
+        const val FAST_CACHE_SCHEMA = 1
+    }
 }

@@ -2,6 +2,7 @@ package com.droplay.tv.data
 
 import java.text.Normalizer
 import java.util.Calendar
+import java.util.IdentityHashMap
 import java.util.Locale
 
 data class PreparedCatalog(
@@ -38,12 +39,14 @@ object CatalogOrganizer {
 
     fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): PreparedCatalog {
         val allowed = visibleEntries(entries, showAdult, showCinema)
+        val subtitleByMovie = IdentityHashMap<MediaEntry, Boolean>()
+        allowed.asSequence().filter { it.kind == MediaKind.MOVIE }.forEach { subtitleByMovie[it] = isSubtitled(it) }
         val groupedMovies = allowed.asSequence().filter { it.kind == MediaKind.MOVIE }.groupBy(::movieVariantKey)
         val variants = groupedMovies
-            .mapValues { (_, items) -> items.distinctBy(::isSubtitled) }
+            .mapValues { (_, items) -> items.distinctBy { subtitleByMovie[it] == true } }
             .filterValues { it.size > 1 }
         val selectedMovieIds = groupedMovies.values.asSequence()
-            .map { items -> items.firstOrNull { !isSubtitled(it) } ?: items.first() }
+            .map { items -> items.firstOrNull { subtitleByMovie[it] != true } ?: items.first() }
             .mapTo(HashSet(), MediaEntry::id)
         val visible = allowed.filter { it.kind != MediaKind.MOVIE || it.id in selectedMovieIds }
         val movies = visible.filter { it.kind == MediaKind.MOVIE }
@@ -55,10 +58,12 @@ object CatalogOrganizer {
         val national = visible.filter(::isNational)
         val nationalNovels = national.filter(::isNovel)
         val novelIds = nationalNovels.mapTo(HashSet(), MediaEntry::id)
+        val categoryByEntry = IdentityHashMap<MediaEntry, String>()
+        visible.forEach { categoryByEntry[it] = category(it) }
         val categoryIndex = mapOf(
-            MediaKind.MOVIE to movies.groupBy(::category),
-            MediaKind.SERIES to series.groupBy(::category),
-            MediaKind.LIVE to live.groupBy(::category),
+            MediaKind.MOVIE to movies.groupBy { categoryByEntry[it].orEmpty() },
+            MediaKind.SERIES to series.groupBy { categoryByEntry[it].orEmpty() },
+            MediaKind.LIVE to live.groupBy { categoryByEntry[it].orEmpty() },
         )
         val recent = movies.sortedByDescending { it.addedAt }.let { sorted ->
             if ((sorted.firstOrNull()?.addedAt ?: 0L) > 0) sorted.take(100) else movies.asReversed().take(100)
@@ -71,7 +76,7 @@ object CatalogOrganizer {
             nationalMovies = national.filter { it.kind == MediaKind.MOVIE },
             nationalSeries = national.filter { it.kind == MediaKind.SERIES && it.id !in novelIds },
             nationalNovels = nationalNovels, categoryIndex = categoryIndex,
-            homeShelves = visible.filter { it.kind != MediaKind.LIVE }.groupBy(::category).entries
+            homeShelves = visible.filter { it.kind != MediaKind.LIVE }.groupBy { categoryByEntry[it].orEmpty() }.entries
                 .sortedByDescending { it.value.size }.take(6).map { it.key to it.value.take(24) },
             recentMovies = recent, releaseMovies = movies.filter(::isCurrentYear), releaseSeries = series.filter(::isCurrentYear),
         )

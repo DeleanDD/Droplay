@@ -125,7 +125,10 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
                 onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
                 onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
                 onContentSort = viewModel::setContentSort,
-                section = selectedSection, onSection = { selectedSection = it; selectedCategory = null }, category = selectedCategory,
+                section = selectedSection, onSection = {
+                    selectedSection = it; selectedCategory = null
+                    if (it == Section.LIVE) viewModel.ensureEpg()
+                }, category = selectedCategory,
                 onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
             )
             detail?.let { selected ->

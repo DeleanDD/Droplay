@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 data class AppState(
@@ -30,6 +31,7 @@ data class AppState(
 class DroplayViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = DroplayRepository(application)
     private var loadGeneration = 0
+    private var epgRequested = false
     private val _state = MutableStateFlow(AppState(
         favorites = repository.favorites(), history = repository.history(),
         refreshInterval = repository.refreshInterval(), lastRefreshMs = repository.lastRefresh(),
@@ -60,22 +62,22 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
                     source = source, catalog = cached, preparedCatalog = prepared,
                     loading = false, lastRefreshMs = repository.lastRefresh(), error = null,
                 )
-                if (!refreshDue) {
-                    refreshEpgInBackground(source)
-                    return@launch
+                viewModelScope.launch(Dispatchers.IO) {
+                    delay(10_000)
+                    runCatching { repository.ensureFastCache(source, cached.entries) }
                 }
+                if (refreshDue) refreshCatalogInBackground(source, generation, preferences, immediate = force)
+                return@launch
             }
 
-            if (cached == null) _state.value = _state.value.copy(loading = true, loadingMessage = "Conectando ao servidor…")
+            _state.value = _state.value.copy(loading = true, loadingMessage = "Conectando ao servidor…")
             runCatching {
                 val catalog = withContext(Dispatchers.IO) {
-                    repository.load(source, force = refreshDue || cached != null) { step ->
-                        if (cached == null && generation == loadGeneration) {
-                            _state.value = _state.value.copy(loadingMessage = step)
-                        }
+                    repository.load(source, force = refreshDue) { step ->
+                        if (generation == loadGeneration) _state.value = _state.value.copy(loadingMessage = step)
                     }
                 }
-                if (cached == null) _state.value = _state.value.copy(loadingMessage = "Organizando sua biblioteca…")
+                _state.value = _state.value.copy(loadingMessage = "Organizando sua biblioteca…")
                 val prepared = withContext(Dispatchers.Default) {
                     CatalogOrganizer.prepare(catalog.entries, preferences.showAdultContent, preferences.showCinemaContent)
                 }
@@ -86,22 +88,44 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
                     source = source, catalog = catalog, preparedCatalog = prepared,
                     loading = false, lastRefreshMs = repository.lastRefresh(), error = null,
                 )
-                refreshEpgInBackground(source)
             }.onFailure { error ->
                 if (generation != loadGeneration) return@onFailure
-                if (cached == null) {
+                _state.value = _state.value.copy(
+                    source = null, catalog = Catalog(), preparedCatalog = PreparedCatalog(), loading = false,
+                    error = friendlyLoadError(error),
+                )
+            }
+        }
+    }
+
+    private fun refreshCatalogInBackground(
+        source: PlaylistSource,
+        generation: Int,
+        preferences: AppState,
+        immediate: Boolean,
+    ) {
+        viewModelScope.launch {
+            if (!immediate) delay(20_000)
+            runCatching {
+                val catalog = withContext(Dispatchers.IO) { repository.load(source, force = true) }
+                val prepared = withContext(Dispatchers.Default) {
+                    CatalogOrganizer.prepare(catalog.entries, preferences.showAdultContent, preferences.showCinemaContent)
+                }
+                catalog to prepared
+            }.onSuccess { (catalog, prepared) ->
+                if (generation == loadGeneration && _state.value.source == source) {
                     _state.value = _state.value.copy(
-                        source = null, catalog = Catalog(), preparedCatalog = PreparedCatalog(), loading = false,
-                        error = friendlyLoadError(error),
+                        catalog = catalog, preparedCatalog = prepared, lastRefreshMs = repository.lastRefresh(), error = null,
                     )
-                } else {
-                    _state.value = _state.value.copy(loading = false, error = "Não foi possível atualizar agora. A biblioteca salva continua disponível.")
                 }
             }
         }
     }
 
-    private fun refreshEpgInBackground(source: PlaylistSource) {
+    fun ensureEpg() {
+        if (epgRequested) return
+        val source = _state.value.source ?: return
+        epgRequested = true
         viewModelScope.launch {
             val epg = runCatching { withContext(Dispatchers.IO) { repository.refreshEpg() } }.getOrDefault(emptyMap())
             if (_state.value.source == source && epg.isNotEmpty()) {
@@ -162,7 +186,7 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
         _state.value = _state.value.copy(history = repository.history())
     }
     fun dismissError() { _state.value = _state.value.copy(error = null) }
-    fun disconnect() { loadGeneration++; repository.clearSource(); _state.value = AppState(
+    fun disconnect() { loadGeneration++; epgRequested = false; repository.clearSource(); _state.value = AppState(
         favorites = repository.favorites(), history = repository.history(), refreshInterval = repository.refreshInterval(),
         showAdultContent = repository.showAdultContent(), showCinemaContent = repository.showCinemaContent(),
         contentSort = repository.contentSort(), playCounts = repository.playCounts(),
