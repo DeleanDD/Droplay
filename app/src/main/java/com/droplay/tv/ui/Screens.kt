@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -499,9 +500,9 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun CategoryTab(text: String, selected: Boolean, gold: Boolean = false, click: () -> Unit) {
+@Composable private fun CategoryTab(text: String, selected: Boolean, gold: Boolean = false, modifier: Modifier = Modifier, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Surface(Modifier.onFocusChanged { focused = it.isFocused }.clickable(onClick = click), shape = RoundedCornerShape(50),
+    Surface(modifier.onFocusChanged { focused = it.isFocused }.clickable(onClick = click), shape = RoundedCornerShape(50),
         color = when { gold -> Color(0xFFD4A017); selected || focused -> Color.White; else -> Surface },
         contentColor = if (gold || selected || focused) Navy else Color.White) {
         Text(text, Modifier.padding(horizontal = 17.dp, vertical = 9.dp), fontSize = 12.sp, maxLines = 1)
@@ -535,32 +536,54 @@ private fun CatalogScreen(
 }
 
 @Composable private fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, active: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
-    val initialFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    val playFocus = remember { FocusRequester() }
+    val favoriteFocus = remember { FocusRequester() }
     LaunchedEffect(media.id, active) {
         if (!active) return@LaunchedEffect
         delay(100)
-        initialFocus.requestFocus()
+        backFocus.requestFocus()
     }
     Box(Modifier.fillMaxSize().background(Navy)) {
         AsyncImage(media.backdrop ?: media.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.7f), contentScale = ContentScale.Crop, alpha = .38f)
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.94f), Color.Transparent))))
         Column(Modifier.fillMaxHeight().width(700.dp).padding(38.dp), verticalArrangement = Arrangement.Center) {
-            BackButton(back, Modifier.focusRequester(initialFocus), focusBorderColor = Violet)
+            BackButton(back, Modifier.focusRequester(backFocus).focusProperties {
+                down = playFocus
+                left = FocusRequester.Cancel
+                right = FocusRequester.Cancel
+            }, focusBorderColor = Violet)
             Spacer(Modifier.height(20.dp)); Text(media.name, fontSize = 40.sp, fontWeight = FontWeight.Black)
             Text(listOfNotNull(CatalogOrganizer.category(media), media.year?.toString(), media.durationMs.takeIf { it > 0 }?.let(::timeLabel)).joinToString("  •  "), color = Cyan, fontSize = 13.sp)
             Spacer(Modifier.height(13.dp))
             Text(media.description ?: "Sinopse não informada pelo provedor.", color = Color(0xFFD1D5E4), fontSize = 16.sp, lineHeight = 23.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
             progress?.let { Text("Você parou em ${timeLabel(it.positionMs)} de ${timeLabel(it.durationMs)}", Modifier.padding(top = 14.dp), color = Cyan) }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play, focusBorderColor = Violet)
-                ModernButton(if (favorite) "♥  Na minha lista" else "+  Minha lista", fav, primary = false, focusBorderColor = Violet)
+                ModernButton(if (progress != null) "▶  Continuar assistindo" else "▶  Assistir", play,
+                    modifier = Modifier.focusRequester(playFocus).focusProperties {
+                        up = backFocus
+                        left = FocusRequester.Cancel
+                        right = favoriteFocus
+                        down = FocusRequester.Cancel
+                    }, focusBorderColor = Violet)
+                ModernButton(if (favorite) "♥  Na minha lista" else "+  Minha lista", fav, primary = false,
+                    modifier = Modifier.focusRequester(favoriteFocus).focusProperties {
+                        up = backFocus
+                        left = playFocus
+                        right = FocusRequester.Cancel
+                        down = FocusRequester.Cancel
+                    }, focusBorderColor = Violet)
             }
         }
     }
 }
 
 @Composable private fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, active: Boolean, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
-    val initialFocus = remember { FocusRequester() }
+    val backFocus = remember { FocusRequester() }
+    val favoriteFocus = remember { FocusRequester() }
+    val continueFocus = remember { FocusRequester() }
+    val firstSeasonFocus = remember { FocusRequester() }
+    val firstEpisodeFocus = remember { FocusRequester() }
     var screenHasFocus by remember { mutableStateOf(false) }
     val seasons = episodes.mapNotNull { it.season }.distinct().sorted()
     val lastEpisode = state.history.firstOrNull { it.parentSeriesId == series.seriesId }?.let { h -> episodes.firstOrNull { it.id == h.mediaId } }
@@ -569,12 +592,12 @@ private fun CatalogScreen(
     LaunchedEffect(series.id, active) {
         if (!active) return@LaunchedEffect
         delay(100)
-        initialFocus.requestFocus()
+        backFocus.requestFocus()
     }
     LaunchedEffect(loading, episodes.isNotEmpty()) {
         if (active && !loading && !screenHasFocus) {
             delay(100)
-            initialFocus.requestFocus()
+            backFocus.requestFocus()
         }
     }
     Column(Modifier.fillMaxSize().onFocusChanged { screenHasFocus = it.hasFocus }.background(Navy)) {
@@ -583,13 +606,37 @@ private fun CatalogScreen(
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Navy, Navy.copy(.88f), Color.Transparent))))
             Column(Modifier.align(Alignment.CenterStart).padding(35.dp).width(650.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BackButton(back, Modifier.focusRequester(initialFocus))
-                    SeriesFavoriteButton(series.id in state.favorites, fav)
+                    BackButton(back, Modifier.focusRequester(backFocus).focusProperties {
+                        right = favoriteFocus
+                        down = when {
+                            lastEpisode != null -> continueFocus
+                            seasons.isNotEmpty() -> firstSeasonFocus
+                            else -> FocusRequester.Cancel
+                        }
+                        left = FocusRequester.Cancel
+                        up = FocusRequester.Cancel
+                    })
+                    SeriesFavoriteButton(series.id in state.favorites, fav, Modifier.focusRequester(favoriteFocus).focusProperties {
+                        left = backFocus
+                        right = FocusRequester.Cancel
+                        up = FocusRequester.Cancel
+                        down = when {
+                            lastEpisode != null -> continueFocus
+                            seasons.isNotEmpty() -> firstSeasonFocus
+                            else -> FocusRequester.Cancel
+                        }
+                    })
                 }
                 Text(series.name, fontSize = 34.sp, fontWeight = FontWeight.Black)
                 Text(series.description ?: "Escolha uma temporada e um episódio.", color = Color(0xFFD2D6E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    lastEpisode?.let { ModernButton("▶  Continuar ${it.name}", { play(it) }) }
+                    lastEpisode?.let { ModernButton("▶  Continuar ${it.name}", { play(it) }, modifier = Modifier
+                        .focusRequester(continueFocus).focusProperties {
+                            up = backFocus
+                            down = firstSeasonFocus
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                        }) }
                 }
             }
         }
@@ -597,18 +644,36 @@ private fun CatalogScreen(
         else if (episodes.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nenhum episódio encontrado.", color = Muted) }
         else Column(Modifier.fillMaxSize().padding(horizontal = 35.dp)) {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 13.dp)) {
-                items(seasons) { season -> CategoryTab("Temporada $season", selectedSeason == season) { selectedSeason = season } }
+                items(seasons) { season ->
+                    CategoryTab("Temporada $season", selectedSeason == season, modifier = Modifier
+                        .then(if (season == seasons.first()) Modifier.focusRequester(firstSeasonFocus) else Modifier)
+                        .focusProperties {
+                            up = if (lastEpisode != null) continueFocus else backFocus
+                            down = firstEpisodeFocus
+                            if (season == seasons.first()) left = FocusRequester.Cancel
+                            if (season == seasons.last()) right = FocusRequester.Cancel
+                        }) { selectedSeason = season }
+                }
             }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(9.dp), contentPadding = PaddingValues(bottom = 45.dp)) {
-                items(visible, key = { it.id }) { episode -> EpisodeRow(episode, state.progress(episode.id)) { play(episode) } }
+                items(visible, key = { it.id }) { episode ->
+                    EpisodeRow(episode, state.progress(episode.id), Modifier
+                        .then(if (episode.id == visible.firstOrNull()?.id) Modifier.focusRequester(firstEpisodeFocus) else Modifier)
+                        .focusProperties {
+                            left = FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                            if (episode.id == visible.firstOrNull()?.id) up = firstSeasonFocus
+                            if (episode.id == visible.lastOrNull()?.id) down = FocusRequester.Cancel
+                        }) { play(episode) }
+                }
             }
         }
     }
 }
 
-@Composable private fun EpisodeRow(episode: MediaEntry, progress: WatchRecord?, play: () -> Unit) {
+@Composable private fun EpisodeRow(episode: MediaEntry, progress: WatchRecord?, modifier: Modifier = Modifier, play: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(10.dp))
+    Row(modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(10.dp))
         .background(if (focused) Color(0xFF26305A) else Surface).border(if (focused) 2.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
         .clickable(onClick = play).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(150.dp, 84.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xFF1A2240))) {
@@ -769,11 +834,11 @@ private fun CatalogScreen(
     ModernButton("←  VOLTAR", onClick, primary = false, modifier = modifier, focusBorderColor = focusBorderColor)
 }
 
-@Composable private fun SeriesFavoriteButton(favorite: Boolean, onClick: () -> Unit) {
+@Composable private fun SeriesFavoriteButton(favorite: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     IconButton(
         onClick = onClick,
-        modifier = Modifier.onFocusChanged { focused = it.isFocused }.size(42.dp)
+        modifier = modifier.onFocusChanged { focused = it.isFocused }.size(42.dp)
             .graphicsLayer { scaleX = if (focused) 1.1f else 1f; scaleY = if (focused) 1.1f else 1f }
             .background(if (focused) Color.White else Color(0x441AFFFFFF), CircleShape)
             .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x44FFFFFF), CircleShape),

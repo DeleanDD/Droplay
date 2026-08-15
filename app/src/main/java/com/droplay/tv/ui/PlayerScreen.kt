@@ -1,5 +1,6 @@
 package com.droplay.tv.ui
 
+import androidx.activity.compose.BackHandler
 import android.view.KeyEvent
 import android.net.Uri
 import androidx.annotation.OptIn
@@ -175,6 +176,12 @@ fun PlayerScreen(
     }
     LaunchedEffect(ghost) { if (ghost != null) { delay(700); ghost = null } }
     LaunchedEffect(Unit) { rootFocus.requestFocus() }
+    BackHandler(enabled = controlFocused) {
+        controlFocused = false
+        requestedFocus = null
+        rootFocus.requestFocus()
+        wake()
+    }
     LaunchedEffect(controls, requestedFocus) {
         if (controls) {
             when (requestedFocus) {
@@ -195,6 +202,13 @@ fun PlayerScreen(
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlFocused) false else { seek(15_000); true }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
                         if (controlFocused) false else { togglePlayback(); true }
+                    KeyEvent.KEYCODE_BACK -> if (controlFocused) {
+                        controlFocused = false
+                        requestedFocus = null
+                        rootFocus.requestFocus()
+                        wake()
+                        true
+                    } else false
                     KeyEvent.KEYCODE_DPAD_UP -> { wake(); requestedFocus = ControlTarget.BACK; true }
                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); requestedFocus = ControlTarget.ACTIONS; true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(30_000); true }
@@ -221,7 +235,8 @@ fun PlayerScreen(
                 }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 38.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     if (duration > 0) {
-                        TvSeekBar(position, duration, { player.seekTo(it); wake() }, { controlFocused = it; if (it) wake() })
+                        TvSeekBar(position, duration, { player.seekTo(it); wake() }, ::togglePlayback,
+                            { controlFocused = it; if (it) wake() })
                         Row(Modifier.fillMaxWidth()) {
                             Text(formatTime(position), fontSize = 11.sp)
                             Spacer(Modifier.weight(1f))
@@ -293,7 +308,7 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
     }
 }
 
-@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit, focus: (Boolean) -> Unit) {
+@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit, togglePlayback: () -> Unit, focus: (Boolean) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val fraction = (position.toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f)
     Box(Modifier.fillMaxWidth().height(26.dp).onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
@@ -301,6 +316,9 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
             if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) false else when (event.nativeKeyEvent.keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> { seek((position - 30_000).coerceAtLeast(0)); true }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> { seek((position + 30_000).coerceAtMost(duration)); true }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                    togglePlayback(); true
+                }
                 else -> false
             }
         }.focusable(), contentAlignment = Alignment.Center) {
