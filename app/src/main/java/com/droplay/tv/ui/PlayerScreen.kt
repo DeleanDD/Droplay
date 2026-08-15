@@ -3,6 +3,7 @@ package com.droplay.tv.ui
 import androidx.activity.compose.BackHandler
 import android.view.KeyEvent
 import android.net.Uri
+import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -100,6 +102,7 @@ fun PlayerScreen(
     var retriedFromStart by remember(media.url) { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val backFocus = remember { FocusRequester() }
+    val playPauseFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
     var requestedFocus by remember { mutableStateOf<ControlTarget?>(null) }
 
@@ -176,6 +179,13 @@ fun PlayerScreen(
     }
     LaunchedEffect(ghost) { if (ghost != null) { delay(700); ghost = null } }
     LaunchedEffect(Unit) { rootFocus.requestFocus() }
+    LaunchedEffect(controls) {
+        if (!controls) {
+            controlFocused = false
+            requestedFocus = null
+            rootFocus.requestFocus()
+        }
+    }
     BackHandler(enabled = controlFocused) {
         controlFocused = false
         requestedFocus = null
@@ -186,7 +196,7 @@ fun PlayerScreen(
         if (controls) {
             when (requestedFocus) {
                 ControlTarget.BACK -> backFocus.requestFocus()
-                ControlTarget.ACTIONS -> favoriteFocus.requestFocus()
+                ControlTarget.ACTIONS -> playPauseFocus.requestFocus()
                 null -> Unit
             }
             requestedFocus = null
@@ -217,7 +227,23 @@ fun PlayerScreen(
                 }
             }
     ) {
-        AndroidView(factory = { PlayerView(it).apply { useController = false; this.player = player } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
+        AndroidView(
+            factory = {
+                PlayerView(it).apply {
+                    useController = false
+                    this.player = player
+                    isFocusable = false
+                    isFocusableInTouchMode = false
+                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                }
+            },
+            update = {
+                it.player = player
+                it.isFocusable = false
+                it.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            },
+            modifier = Modifier.fillMaxSize().focusProperties { canFocus = false },
+        )
         if (buffering) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Cyan)
 
         AnimatedVisibility(ghost != null, Modifier.align(Alignment.Center), enter = fadeIn(), exit = fadeOut()) {
@@ -248,6 +274,10 @@ fun PlayerScreen(
                         Text("Preparando reprodução…", color = Muted, fontSize = 12.sp)
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        MiniControl(if (playing) R.drawable.ic_player_pause else R.drawable.ic_player_play,
+                            if (playing) "Pausar" else "Reproduzir", { controlFocused = it; if (it) wake() },
+                            playPauseFocus, ::togglePlayback)
+                        Spacer(Modifier.width(10.dp))
                         Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
                         Spacer(Modifier.weight(1f))
                         MiniControl(if (favorite) R.drawable.ic_player_favorite else R.drawable.ic_player_favorite_border, "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus, onFavorite)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +74,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     var selectedSection by remember { mutableStateOf(Section.HOME) }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    val screenState = rememberSaveableStateHolder()
     val currentPlayback = playing
 
     fun start(media: MediaEntry, at: Long) {
@@ -119,35 +121,34 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     if (state.source == null && !state.loading) {
         OnboardingScreen(state.error, viewModel::dismissError, viewModel::connect)
     } else {
-        Box(Modifier.fillMaxSize()) {
-            CatalogScreen(
-                state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
-                onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
-                onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
-                onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
-                onContentSort = viewModel::setContentSort,
-                section = selectedSection, onSection = {
-                    selectedSection = it; selectedCategory = null
-                    if (it == Section.LIVE) viewModel.ensureEpg()
-                }, category = selectedCategory,
-                onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
+        when {
+            currentPlayback != null -> PlayerScreen(
+                media = currentPlayback.media, resumeAt = currentPlayback.startAt,
+                favorite = currentPlayback.media.id in state.favorites,
+                onFavorite = { viewModel.toggleFavorite(currentPlayback.media.id) },
+                onProgress = { p, d -> viewModel.saveProgress(currentPlayback.media, p, d) },
+                onBack = { playing = null },
             )
-            detail?.let { selected ->
-                Surface(Modifier.fillMaxSize(), color = Navy) {
-                    DetailScreen(
-                        media = selected, episodes = episodes, loadingEpisodes = loadingEpisodes,
-                        state = state, active = currentPlayback == null, onBack = { detail = null }, onPlay = ::requestPlay,
-                        onFavorite = { viewModel.toggleFavorite(selected.id) },
-                    )
-                }
+            detail != null -> Surface(Modifier.fillMaxSize(), color = Navy) {
+                val selected = detail ?: return@Surface
+                DetailScreen(
+                    media = selected, episodes = episodes, loadingEpisodes = loadingEpisodes,
+                    state = state, active = true, onBack = { detail = null }, onPlay = ::requestPlay,
+                    onFavorite = { viewModel.toggleFavorite(selected.id) },
+                )
             }
-            currentPlayback?.let { session ->
-                PlayerScreen(
-                    media = session.media, resumeAt = session.startAt,
-                    favorite = session.media.id in state.favorites,
-                    onFavorite = { viewModel.toggleFavorite(session.media.id) },
-                    onProgress = { p, d -> viewModel.saveProgress(session.media, p, d) },
-                    onBack = { playing = null },
+            else -> screenState.SaveableStateProvider("catalog") {
+                CatalogScreen(
+                    state = state, onOpen = { if (it.kind == MediaKind.LIVE) requestPlay(it) else openDetails(it) },
+                    onFavorite = viewModel::toggleFavorite, onDisconnect = viewModel::disconnect,
+                    onRefreshInterval = viewModel::setRefreshInterval, onRefresh = viewModel::refreshCatalog,
+                    onAdultContent = viewModel::setShowAdultContent, onCinemaContent = viewModel::setShowCinemaContent,
+                    onContentSort = viewModel::setContentSort,
+                    section = selectedSection, onSection = {
+                        selectedSection = it; selectedCategory = null
+                        if (it == Section.LIVE) viewModel.ensureEpg()
+                    }, category = selectedCategory,
+                    onCategory = { selectedCategory = it }, query = searchQuery, onQuery = { searchQuery = it },
                 )
             }
         }
