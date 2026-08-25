@@ -4,7 +4,7 @@ import com.droplay.tv.data.MediaEntry
 
 data class OpenSubtitlesConfiguration(
     val apiKey: String = "",
-    val userAgent: String = "DROPLAY v1.2.16",
+    val userAgent: String = "DROPLAY v1.2.17",
     val username: String = "",
     val token: String = "",
     val baseUrl: String = DEFAULT_API_URL,

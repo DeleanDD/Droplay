@@ -19,6 +19,7 @@ data class PreparedCatalog(
     val nationalSeries: List<MediaEntry> = emptyList(),
     val nationalNovels: List<MediaEntry> = emptyList(),
     val categoryIndex: Map<MediaKind, Map<String, List<MediaEntry>>> = emptyMap(),
+    val liveSubcategoryIndex: Map<String, Map<String, List<MediaEntry>>> = emptyMap(),
     val homeShelves: List<Pair<String, List<MediaEntry>>> = emptyList(),
     val recentMovies: List<MediaEntry> = emptyList(),
     val releaseMovies: List<MediaEntry> = emptyList(),
@@ -65,6 +66,8 @@ object CatalogOrganizer {
             MediaKind.SERIES to series.groupBy { categoryByEntry[it].orEmpty() },
             MediaKind.LIVE to live.groupBy { categoryByEntry[it].orEmpty() },
         )
+        val liveSubcategoryIndex = live.groupBy { categoryByEntry[it].orEmpty() }
+            .mapValues { (_, channels) -> channels.groupBy { cleanCategory(it.group, MediaKind.LIVE) } }
         val recent = movies.sortedByDescending { it.addedAt }.let { sorted ->
             if ((sorted.firstOrNull()?.addedAt ?: 0L) > 0) sorted.take(100) else movies.asReversed().take(100)
         }
@@ -75,7 +78,7 @@ object CatalogOrganizer {
             kidsCartoons = kidsCartoons, kidsLive = kids.filter { it.kind == MediaKind.LIVE },
             nationalMovies = national.filter { it.kind == MediaKind.MOVIE },
             nationalSeries = national.filter { it.kind == MediaKind.SERIES && it.id !in novelIds },
-            nationalNovels = nationalNovels, categoryIndex = categoryIndex,
+            nationalNovels = nationalNovels, categoryIndex = categoryIndex, liveSubcategoryIndex = liveSubcategoryIndex,
             homeShelves = visible.filter { it.kind != MediaKind.LIVE }.groupBy { categoryByEntry[it].orEmpty() }.entries
                 .sortedByDescending { it.value.size }.take(6).map { it.key to it.value.take(24) },
             recentMovies = recent, releaseMovies = movies.filter(::isCurrentYear), releaseSeries = series.filter(::isCurrentYear),

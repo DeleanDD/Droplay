@@ -12,8 +12,8 @@ android {
         applicationId = "com.droplay.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 19
-        versionName = "1.2.16"
+        versionCode = 20
+        versionName = "1.2.17"
     }
 
     buildFeatures {

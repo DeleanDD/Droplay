@@ -71,5 +71,14 @@ class CatalogOrganizerTest {
         assertFalse(CatalogOrganizer.isNovel(entry("Drama Turco", MediaKind.SERIES, "Novelas Turcas")))
     }
 
+    @Test fun preservesXtreamGroupsAsLiveSubcategories() {
+        val south = entry("Globo RS", MediaKind.LIVE, "Canais | Globo Sul")
+        val southeast = entry("Globo SP", MediaKind.LIVE, "Canais | Globo Sudeste")
+        val prepared = CatalogOrganizer.prepare(listOf(south, southeast), showAdult = false, showCinema = false)
+
+        assertEquals(setOf("Globo Sul", "Globo Sudeste"), prepared.liveSubcategoryIndex["Globo"]?.keys)
+        assertEquals(listOf(south), prepared.liveSubcategoryIndex["Globo"]?.get("Globo Sul"))
+    }
+
     private fun entry(name: String, kind: MediaKind, group: String) = MediaEntry(name, name, "https://example.test/$name", kind, group)
 }

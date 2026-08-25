@@ -413,17 +413,34 @@ private fun CatalogScreen(
             keyboard?.show()
         }
     }
-    var appliedQuery by remember { mutableStateOf(query) }
-    LaunchedEffect(query) { delay(180); appliedQuery = query }
     val prepared = state.preparedCatalog
     val catalog = prepared.entries
-    val all = remember(section, catalog, state.favorites, appliedQuery) {
+    var searchResults by remember(catalog) { mutableStateOf(emptyList<MediaEntry>()) }
+    var searchRunning by remember { mutableStateOf(false) }
+    LaunchedEffect(section, query, catalog) {
+        if (section != Section.SEARCH || query.trim().length < 3) {
+            searchResults = emptyList()
+            searchRunning = false
+        } else {
+            searchRunning = true
+            delay(280)
+            val needle = query.trim()
+            searchResults = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                catalog.asSequence()
+                    .filter { it.name.contains(needle, true) || it.group.contains(needle, true) }
+                    .take(240)
+                    .toList()
+            }
+            searchRunning = false
+        }
+    }
+    val all = remember(section, catalog, state.favorites, searchResults) {
         when (section) {
             Section.LIVE -> prepared.live
             Section.MOVIES -> prepared.movies
             Section.SERIES -> prepared.series
             Section.FAVORITES -> catalog.filter { it.id in state.favorites }
-            Section.SEARCH -> catalog.filter { appliedQuery.length > 1 && (it.name.contains(appliedQuery, true) || it.group.contains(appliedQuery, true)) }
+            Section.SEARCH -> searchResults
             else -> emptyList()
         }
     }
@@ -444,7 +461,13 @@ private fun CatalogScreen(
         Section.LIVE -> "Favoritos"
         else -> null
     }
-    val selectedItems = remember(section, activeCategory, all) { when {
+    var liveSubcategory by remember(activeCategory) { mutableStateOf<String?>(null) }
+    val liveSubcategories = remember(section, activeCategory, prepared.liveSubcategoryIndex) {
+        if (section == Section.LIVE && activeCategory !in listOf(null, "Favoritos", "Todos")) {
+            prepared.liveSubcategoryIndex[activeCategory].orEmpty().keys.sorted()
+        } else emptyList()
+    }
+    val selectedItems = remember(section, activeCategory, liveSubcategory, all) { when {
         activeCategory == null || activeCategory == "Todos" -> all
         section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT -> prepared.recentMovies
         section == Section.MOVIES && activeCategory.startsWith("Lançamentos ") -> prepared.releaseMovies
@@ -455,6 +478,7 @@ private fun CatalogScreen(
         section == Section.LIVE && activeCategory == "Favoritos" -> all.filter { it.id in state.favorites }
         section == Section.MOVIES -> prepared.categoryIndex[MediaKind.MOVIE]?.get(activeCategory).orEmpty()
         section == Section.SERIES -> prepared.categoryIndex[MediaKind.SERIES]?.get(activeCategory).orEmpty()
+        section == Section.LIVE && liveSubcategory != null -> prepared.liveSubcategoryIndex[activeCategory]?.get(liveSubcategory).orEmpty()
         section == Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE]?.get(activeCategory).orEmpty()
         else -> emptyList()
     } }
@@ -469,7 +493,19 @@ private fun CatalogScreen(
                 items(categories) { name -> CategoryTab(name, activeCategory == name, gold = name == CatalogOrganizer.FOOTBALL) { onCategory(name) } }
             }
         }
-        if (visible.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(if (section == Section.SEARCH && query.length < 2) "Digite ao menos 2 caracteres" else "Nada por aqui ainda.", color = Muted) }
+        if (liveSubcategories.size > 1) {
+            LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { CategoryTab("Todos", liveSubcategory == null) { liveSubcategory = null } }
+                items(liveSubcategories) { name -> CategoryTab(name, liveSubcategory == name) { liveSubcategory = name } }
+            }
+        }
+        if (visible.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(when {
+                section == Section.SEARCH && query.trim().length < 3 -> "Digite ao menos 3 caracteres"
+                section == Section.SEARCH && searchRunning -> "Buscando…"
+                else -> "Nada por aqui ainda."
+            }, color = Muted)
+        }
         else if (section == Section.LIVE) LiveChannelList(visible, state.favorites, open, favorite)
         else LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize(), contentPadding = PaddingValues(32.dp, 4.dp, 32.dp, 50.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             items(visible, key = { it.id }) { PosterCard(it, state.progress(it.id), it.id in state.favorites, { open(it) }, { favorite(it.id) }, removable = section == Section.FAVORITES) }

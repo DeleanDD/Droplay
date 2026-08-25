@@ -58,7 +58,8 @@ class DroplayRepository(context: Context) {
         val interval = refreshInterval()
         val age = System.currentTimeMillis() - lastRefresh()
         val sourceMatches = prefs.getString("catalog_source_key", null) == sourceKey(source)
-        return !sourceMatches || interval == RefreshInterval.EVERY_LAUNCH || age < 0 || age >= interval.durationMs || !cache.baseFile.exists()
+        return !sourceMatches || interval == RefreshInterval.EVERY_LAUNCH || age < 0 || age >= interval.durationMs ||
+            (!fastCache.baseFile.exists() && !cache.baseFile.exists())
     }
 
     fun showAdultContent(): Boolean = prefs.getBoolean("show_adult_content", false)
@@ -112,8 +113,10 @@ class DroplayRepository(context: Context) {
             require(entries.isNotEmpty()) { "Nenhum item reproduzível foi encontrado." }
             if (save) saveSource(source)
             prefs.edit().putString("epg_url", epgUrl).apply()
-            saveCatalog(source, entries)
-            Catalog(entries)
+            val previous = cachedCatalog(source, requireFresh = false)?.entries.orEmpty()
+            val merged = mergeCatalog(previous, entries)
+            if (previous != merged) saveCatalog(source, merged) else markCatalogChecked(source)
+            Catalog(merged)
         } catch (error: Throwable) {
             if (force) throw error
             cachedCatalog(source, requireFresh = false) ?: throw error
@@ -200,6 +203,18 @@ class DroplayRepository(context: Context) {
         cache.delete()
         val now = System.currentTimeMillis()
         prefs.edit().putLong("last_catalog_refresh", now).putString("catalog_source_key", sourceKey(source)).apply()
+    }
+
+    private fun markCatalogChecked(source: PlaylistSource) {
+        prefs.edit().putLong("last_catalog_refresh", System.currentTimeMillis())
+            .putString("catalog_source_key", sourceKey(source)).apply()
+    }
+
+    /** Reutiliza os registros que não mudaram e aplica somente inclusões, alterações e remoções. */
+    internal fun mergeCatalog(previous: List<MediaEntry>, incoming: List<MediaEntry>): List<MediaEntry> {
+        if (previous.isEmpty()) return incoming
+        val oldById = previous.associateBy(MediaEntry::id)
+        return incoming.map { item -> oldById[item.id]?.takeIf { it == item } ?: item }
     }
 
     @Synchronized

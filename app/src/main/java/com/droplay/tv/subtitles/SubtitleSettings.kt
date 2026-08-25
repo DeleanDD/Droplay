@@ -29,7 +29,7 @@ class SubtitleSettings(private val context: Context) {
         val json = decrypt(prefs.getString("credentials", null)) ?: return OpenSubtitlesConfiguration()
         val value = runCatching { JSONObject(json) }.getOrElse { return OpenSubtitlesConfiguration() }
         return OpenSubtitlesConfiguration(
-            apiKey = value.optString("apiKey"), userAgent = value.optString("userAgent", "DROPLAY v1.2.16"),
+            apiKey = value.optString("apiKey"), userAgent = value.optString("userAgent", "DROPLAY v1.2.17"),
             username = value.optString("username"), token = value.optString("token"),
             baseUrl = value.optString("baseUrl", OpenSubtitlesConfiguration.DEFAULT_API_URL),
         )
