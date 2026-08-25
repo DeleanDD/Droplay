@@ -10,4 +10,8 @@ captures/
 .cxx/
 *.jks
 *.keystore
+opensubtitles.properties
+secrets.properties
+.env
+.env.*
 /dist/*

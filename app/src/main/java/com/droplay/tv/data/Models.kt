@@ -36,6 +36,8 @@ data class MediaEntry(
     val addedAt: Long = 0L,
     val durationMs: Long = 0L,
     val subtitles: List<SubtitleTrack> = emptyList(),
+    val tmdbId: Int? = null,
+    val parentTitle: String? = null,
 )
 
 data class EpgProgram(
@@ -63,10 +65,16 @@ data class WatchRecord(
     val logo: String? = null,
     val parentSeriesId: String? = null,
     val subtitles: List<SubtitleTrack> = emptyList(),
+    val season: Int? = null,
+    val episode: Int? = null,
+    val year: Int? = null,
+    val tmdbId: Int? = null,
+    val parentTitle: String? = null,
 ) {
     fun asMediaEntry() = MediaEntry(
         id = mediaId, name = name.ifBlank { "Conteúdo recente" }, url = url,
         kind = kind, group = group, logo = logo, parentSeriesId = parentSeriesId, subtitles = subtitles,
+        season = season, episode = episode, year = year, tmdbId = tmdbId, parentTitle = parentTitle,
     )
 }
 

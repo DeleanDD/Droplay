@@ -12,6 +12,8 @@ DROPLAY é um player público e independente para Android TV. Ele reproduz fonte
 - canais ao vivo, filmes, séries e episódios;
 - EPG XMLTV nativo (inclusive `.gz`), quando informado pela fonte;
 - múltiplas faixas de áudio, legendas internas atualizadas dinamicamente e legendas externas Xtream/M3U carregadas somente quando escolhidas;
+- busca paginada de legendas na API REST oficial do OpenSubtitles por TMDB ID, com fallback identificado por título/ano;
+- cache local de legendas, prioridade para português do Brasil, ajuste de atraso, tamanho, cor, fundo e contorno;
 - avanço/retrocesso por D-pad, barra rápida e teclas de mídia;
 - favoritos, histórico e retomada local;
 - catálogo por capas, páginas de detalhes, temporadas e episódios;
@@ -40,6 +42,22 @@ Requisitos: JDK 17 e Android SDK 36.
 ```
 
 O APK será criado em `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Configurar o OpenSubtitles
+
+O DROPLAY não contém chave, token, usuário ou senha do OpenSubtitles no código ou no repositório. Para habilitar as legendas automáticas:
+
+1. Crie uma conta em `opensubtitles.com`, consulte a [documentação oficial da API](https://opensubtitles.stoplight.io/docs/opensubtitles-api/e3750fd63a100-getting-started) e crie uma aplicação/API Key no perfil de desenvolvedor.
+2. No DROPLAY, abra **Configurações → Legendas automáticas • OpenSubtitles**.
+3. Informe a API Key, o User-Agent registrado, o usuário e a senha.
+4. Selecione **Salvar configuração** e depois **Entrar no OpenSubtitles**.
+5. Durante um filme ou episódio, abra o ícone **CC**. A busca usa primeiro o TMDB ID recebido do Xtream; quando ele não existe, a interface avisa que a correspondência por título/ano é aproximada.
+
+A API Key, o usuário e o token temporário ficam cifrados com uma chave não exportável do Android Keystore. A senha é enviada diretamente ao endpoint oficial `/login` e nunca é armazenada. O download oficial consome a cota da conta. Para um aplicativo público, não é seguro embutir uma chave compartilhada no APK; cada instalação deve usar credenciais autorizadas.
+
+As legendas baixadas são normalizadas para UTF-8 e guardadas por `file_id` por até 30 dias, com limite total de 50 MB. O cache aceita SRT e WebVTT e também trata arquivos antigos em Windows-1252. Atrasos são aplicados localmente, sem consumir um novo download.
+
+Arquivos locais como `.env`, `opensubtitles.properties` e `secrets.properties` estão ignorados pelo Git. Eles não são necessários no fluxo recomendado pela interface e nunca devem ser enviados ao repositório.
 
 ### Teste rápido no PC
 

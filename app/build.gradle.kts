@@ -12,8 +12,8 @@ android {
         applicationId = "com.droplay.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 18
-        versionName = "1.2.15"
+        versionCode = 19
+        versionName = "1.2.16"
     }
 
     buildFeatures {
@@ -71,5 +71,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.10.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.json:json:20250517")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

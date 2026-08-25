@@ -13,6 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -32,6 +35,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -47,8 +51,12 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.CaptionStyleCompat
 import com.droplay.tv.data.MediaEntry
+import com.droplay.tv.data.MediaKind
+import com.droplay.tv.data.SubtitleTrack
 import com.droplay.tv.R
+import com.droplay.tv.subtitles.*
 import kotlinx.coroutines.delay
 
 private enum class TrackPanel { AUDIO, SUBTITLES }
@@ -65,6 +73,11 @@ fun PlayerScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val subtitleViewModel: SubtitleViewModel = viewModel(key = "subtitles-${media.id}")
+    val subtitleState by subtitleViewModel.state.collectAsState()
+    val subtitleSettings = remember { SubtitleSettings(context) }
+    var subtitleAppearance by remember { mutableStateOf(subtitleSettings.appearance()) }
+    var activeOpenSubtitle by remember(media.id) { mutableStateOf<SubtitleCandidate?>(null) }
     val player = remember(media.url) {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
@@ -126,6 +139,24 @@ fun PlayerScreen(
             .build()
         player.prepare()
         player.playWhenReady = resumePlayback
+    }
+    fun saveSubtitleAppearance(value: SubtitleAppearance) {
+        val previousDelay = subtitleAppearance.delayMs
+        subtitleAppearance = value
+        subtitleSettings.saveAppearance(value)
+        if (previousDelay != value.delayMs) activeOpenSubtitle?.let { subtitleViewModel.retime(it, value.delayMs) }
+    }
+
+    LaunchedEffect(subtitleState) {
+        val ready = subtitleState as? SubtitleUiState.Ready ?: return@LaunchedEffect
+        activeOpenSubtitle = ready.candidate
+        selectExternalSubtitle(SubtitleTrack(
+            url = ready.localUrl,
+            label = "OpenSubtitles • ${SubtitleRanking.languageLabel(ready.candidate.language)}",
+            language = SubtitleRanking.normalizeLanguage(ready.candidate.language),
+            mimeType = if (ready.localUrl.endsWith(".vtt", true)) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP,
+        ))
+        subtitleViewModel.consumeReady()
     }
 
     DisposableEffect(player) {
@@ -241,6 +272,7 @@ fun PlayerScreen(
                 it.player = player
                 it.isFocusable = false
                 it.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                applySubtitleAppearance(it, subtitleAppearance)
             },
             modifier = Modifier.fillMaxSize().focusProperties { canFocus = false },
         )
@@ -284,7 +316,11 @@ fun PlayerScreen(
                         Spacer(Modifier.width(8.dp))
                         MiniControl(R.drawable.ic_player_audio, "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
                         Spacer(Modifier.width(8.dp))
-                        MiniControl(R.drawable.ic_player_cc, "Legendas", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.SUBTITLES; wake() }
+                        MiniControl(R.drawable.ic_player_cc, "Legendas", { controlFocused = it; if (it) wake() }) {
+                            panel = TrackPanel.SUBTITLES
+                            if (media.kind != MediaKind.LIVE) subtitleViewModel.search(media)
+                            wake()
+                        }
                     }
                 }
             }
@@ -308,6 +344,12 @@ fun PlayerScreen(
             player = player, media = media, panel = it, revision = tracksRevision,
             activeExternal = activeExternalSubtitle,
             selectExternal = ::selectExternalSubtitle,
+            openSubtitlesState = subtitleState,
+            activeOpenSubtitle = activeOpenSubtitle,
+            appearance = subtitleAppearance,
+            retryOpenSubtitles = { subtitleViewModel.search(media, force = true) },
+            downloadOpenSubtitle = { subtitleViewModel.download(it, subtitleAppearance.delayMs) },
+            changeAppearance = ::saveSubtitleAppearance,
             onDismiss = { panel = null; controlFocused = false; wake() },
         )
     }
@@ -365,6 +407,12 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
     revision: Int,
     activeExternal: com.droplay.tv.data.SubtitleTrack?,
     selectExternal: (com.droplay.tv.data.SubtitleTrack?) -> Unit,
+    openSubtitlesState: SubtitleUiState,
+    activeOpenSubtitle: SubtitleCandidate?,
+    appearance: SubtitleAppearance,
+    retryOpenSubtitles: () -> Unit,
+    downloadOpenSubtitle: (SubtitleCandidate) -> Unit,
+    changeAppearance: (SubtitleAppearance) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val type = if (panel == TrackPanel.AUDIO) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
@@ -374,7 +422,7 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
         }
     }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (panel == TrackPanel.AUDIO) "Faixa de áudio" else "Legendas") }, text = {
-        Column(Modifier.widthIn(min = 420.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(Modifier.widthIn(min = 520.dp).heightIn(max = 510.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (panel == TrackPanel.SUBTITLES) TextButton(onClick = {
                 if (activeExternal != null) selectExternal(null)
                 else player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(type, true).build()
@@ -404,8 +452,101 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
                     }
                 }
             }
+            if (panel == TrackPanel.SUBTITLES && media.kind != MediaKind.LIVE) {
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                Text("OpenSubtitles", color = Cyan, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                when (openSubtitlesState) {
+                    SubtitleUiState.Idle -> TextButton(onClick = retryOpenSubtitles) { Text("Buscar legendas automaticamente") }
+                    is SubtitleUiState.Searching -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(22.dp), color = Cyan, strokeWidth = 2.dp)
+                        Text("Buscando legendas… página ${openSubtitlesState.page}${openSubtitlesState.totalPages?.let { " de $it" }.orEmpty()}", Modifier.padding(start = 10.dp), color = Muted)
+                    }
+                    is SubtitleUiState.Downloading -> Text("Baixando ${openSubtitlesState.candidate.release.ifBlank { openSubtitlesState.candidate.fileName }}…", color = Muted)
+                    is SubtitleUiState.Error -> Column {
+                        Text(openSubtitlesState.message, color = Coral)
+                        TextButton(onClick = retryOpenSubtitles) { Text("Tentar novamente") }
+                    }
+                    is SubtitleUiState.Results -> OpenSubtitlesResults(
+                        groups = openSubtitlesState.groups, preferredLanguage = appearance.preferredLanguage,
+                        approximate = openSubtitlesState.approximate, active = activeOpenSubtitle,
+                        select = downloadOpenSubtitle, changePreferredLanguage = {
+                            changeAppearance(appearance.copy(preferredLanguage = it))
+                        },
+                    )
+                    is SubtitleUiState.Ready -> Text("Aplicando legenda…", color = Muted)
+                }
+                HorizontalDivider(color = Color(0x22FFFFFF))
+                Text("Sincronização e aparência", color = Muted, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { changeAppearance(appearance.copy(delayMs = (appearance.delayMs - 500).coerceAtLeast(-30_000))) }) { Text("−0,5s") }
+                    Text("Atraso: ${"%+.1f".format(appearance.delayMs / 1000.0)}s", Modifier.width(105.dp), color = Color.White)
+                    TextButton(onClick = { changeAppearance(appearance.copy(delayMs = (appearance.delayMs + 500).coerceAtMost(30_000))) }) { Text("+0,5s") }
+                    TextButton(onClick = { changeAppearance(appearance.copy(delayMs = 0)) }) { Text("Zerar") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { changeAppearance(appearance.copy(textScale = (appearance.textScale - .1f).coerceAtLeast(.7f))) }) { Text("A−") }
+                    Text("Tamanho ${"%.0f".format(appearance.textScale * 100)}%", color = Color.White)
+                    TextButton(onClick = { changeAppearance(appearance.copy(textScale = (appearance.textScale + .1f).coerceAtMost(1.6f))) }) { Text("A+") }
+                    TextButton(onClick = { changeAppearance(appearance.copy(color = SubtitleColor.entries[(appearance.color.ordinal + 1) % SubtitleColor.entries.size])) }) { Text("Cor: ${appearance.color.name}") }
+                    TextButton(onClick = { changeAppearance(appearance.copy(background = !appearance.background)) }) { Text(if (appearance.background) "Fundo: sim" else "Fundo: não") }
+                    TextButton(onClick = { changeAppearance(appearance.copy(outline = !appearance.outline)) }) { Text(if (appearance.outline) "Contorno: sim" else "Contorno: não") }
+                }
+            }
         }
     }, confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
+}
+
+@Composable
+private fun OpenSubtitlesResults(
+    groups: Map<String, List<SubtitleCandidate>>,
+    preferredLanguage: String,
+    approximate: Boolean,
+    active: SubtitleCandidate?,
+    select: (SubtitleCandidate) -> Unit,
+    changePreferredLanguage: (String) -> Unit,
+) {
+    if (groups.isEmpty()) {
+        Text("Nenhuma legenda encontrada.", color = Muted)
+        return
+    }
+    val preferred = SubtitleRanking.normalizeLanguage(preferredLanguage)
+    var language by remember(groups, preferred) { mutableStateOf(preferred.takeIf(groups::containsKey) ?: groups.keys.first()) }
+    if (approximate) Text("Correspondência aproximada por título/ano. Confirme a versão antes de usar.", color = Color(0xFFFFC857), fontSize = 12.sp)
+    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(groups.keys.toList(), key = { it }) { code ->
+            TextButton(onClick = { language = code; changePreferredLanguage(code) }) {
+                Text(if (code == language) "● ${SubtitleRanking.languageLabel(code)}" else SubtitleRanking.languageLabel(code))
+            }
+        }
+    }
+    Text("${groups[language].orEmpty().size} versões em ${SubtitleRanking.languageLabel(language)}", color = Muted, fontSize = 11.sp)
+    groups[language].orEmpty().take(40).forEachIndexed { index, candidate ->
+        TextButton(onClick = { select(candidate) }, Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth()) {
+                val badges = buildList {
+                    if (candidate == active) add("ATIVA")
+                    if (candidate.trusted) add("CONFIÁVEL")
+                    if (candidate.aiTranslated || candidate.machineTranslated) add("TRADUZIDA")
+                }.joinToString(" • ")
+                Text("${index + 1}. ${candidate.release.ifBlank { candidate.fileName }}${badges.takeIf(String::isNotBlank)?.let { "  •  $it" }.orEmpty()}", maxLines = 2)
+                Text("★ ${"%.1f".format(candidate.rating)}  •  ${candidate.downloads} downloads", color = Muted, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+private fun applySubtitleAppearance(view: PlayerView, appearance: SubtitleAppearance) {
+    val foreground = when (appearance.color) {
+        SubtitleColor.WHITE -> android.graphics.Color.WHITE
+        SubtitleColor.YELLOW -> android.graphics.Color.YELLOW
+        SubtitleColor.CYAN -> android.graphics.Color.CYAN
+    }
+    val background = if (appearance.background) 0x99000000.toInt() else android.graphics.Color.TRANSPARENT
+    val edgeType = if (appearance.outline) CaptionStyleCompat.EDGE_TYPE_OUTLINE else CaptionStyleCompat.EDGE_TYPE_NONE
+    view.subtitleView?.apply {
+        setFractionalTextSize(0.0533f * appearance.textScale)
+        setStyle(CaptionStyleCompat(foreground, background, android.graphics.Color.TRANSPARENT, edgeType, android.graphics.Color.BLACK, null))
+    }
 }
 
 private fun playerMediaItem(media: MediaEntry, externalSubtitle: com.droplay.tv.data.SubtitleTrack? = null): MediaItem {

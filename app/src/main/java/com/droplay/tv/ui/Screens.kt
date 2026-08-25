@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,6 +50,8 @@ import com.droplay.tv.BuildConfig
 import com.droplay.tv.DroplayViewModel
 import com.droplay.tv.R
 import com.droplay.tv.data.*
+import com.droplay.tv.subtitles.SubtitleRepository
+import com.droplay.tv.subtitles.friendlySubtitleError
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -98,7 +101,9 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
         if (media.kind == MediaKind.SERIES && media.seriesId != null) {
             loadingEpisodes = true
             scope.launch {
-                episodes = viewModel.episodes(media.seriesId)
+                episodes = viewModel.episodes(media.seriesId).map { episode ->
+                    episode.copy(parentTitle = episode.parentTitle ?: media.name, year = episode.year ?: media.year)
+                }
                 loadingEpisodes = false
             }
         } else if (media.kind == MediaKind.MOVIE) {
@@ -700,6 +705,16 @@ private fun CatalogScreen(
     setContentSort: (ContentSort) -> Unit,
     disconnect: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val subtitleRepository = remember { SubtitleRepository(context) }
+    val subtitleScope = rememberCoroutineScope()
+    val storedSubtitleConfig = remember { subtitleRepository.settings.configuration() }
+    var subtitleApiKey by remember { mutableStateOf(storedSubtitleConfig.apiKey) }
+    var subtitleUserAgent by remember { mutableStateOf(storedSubtitleConfig.userAgent) }
+    var subtitleUsername by remember { mutableStateOf(storedSubtitleConfig.username) }
+    var subtitlePassword by remember { mutableStateOf("") }
+    var subtitleStatus by remember { mutableStateOf(if (storedSubtitleConfig.canDownload) "Conta conectada" else "Configuração pendente") }
+    var subtitleBusy by remember { mutableStateOf(false) }
     var askPin by remember { mutableStateOf(false) }
     var pin by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf(false) }
@@ -712,6 +727,35 @@ private fun CatalogScreen(
     }
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(42.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { Text("Configurações", Modifier.focusRequester(topFocus).focusable(), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black) }
+        item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Legendas automáticas • OpenSubtitles", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Use sua API Key e sua conta do OpenSubtitles.com. A chave e a sessão ficam criptografadas pelo Android; a senha é usada somente para entrar e nunca é salva.", color = Muted, fontSize = 12.sp)
+                TvField(subtitleApiKey, { subtitleApiKey = it }, "OpenSubtitles API Key", secret = true, modifier = Modifier.fillMaxWidth())
+                TvField(subtitleUserAgent, { subtitleUserAgent = it }, "User-Agent registrado (ex.: MeuApp v1.0)", modifier = Modifier.fillMaxWidth())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TvField(subtitleUsername, { subtitleUsername = it }, "Usuário OpenSubtitles", modifier = Modifier.weight(1f))
+                    TvField(subtitlePassword, { subtitlePassword = it }, "Senha (não será salva)", secret = true, modifier = Modifier.weight(1f))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ModernButton("Salvar configuração", {
+                        subtitleRepository.settings.saveConfiguration(subtitleApiKey, subtitleUserAgent, subtitleUsername)
+                        subtitleStatus = "Configuração salva com segurança"
+                    }, primary = false)
+                    ModernButton(if (subtitleBusy) "Entrando…" else "Entrar no OpenSubtitles", {
+                        subtitleRepository.settings.saveConfiguration(subtitleApiKey, subtitleUserAgent, subtitleUsername)
+                        subtitleBusy = true
+                        subtitleScope.launch {
+                            runCatching { subtitleRepository.login(subtitlePassword) }
+                                .onSuccess { subtitlePassword = ""; subtitleStatus = "Conta conectada" }
+                                .onFailure { subtitleStatus = friendlySubtitleError(it) }
+                            subtitleBusy = false
+                        }
+                    }, enabled = !subtitleBusy && subtitleApiKey.isNotBlank() && subtitleUserAgent.isNotBlank() && subtitleUsername.isNotBlank() && subtitlePassword.isNotBlank())
+                    Text(subtitleStatus, color = if (subtitleStatus == "Conta conectada") Cyan else Muted, fontSize = 12.sp)
+                }
+            }
+        } }
         item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Row(Modifier.fillMaxWidth().padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

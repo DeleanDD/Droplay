@@ -66,11 +66,20 @@ class XtreamClient(source: PlaylistSource.Xtream) {
 
     fun episodes(seriesId: String): List<MediaEntry> {
         val result = ArrayList<MediaEntry>()
+        var seriesTmdbId: Int? = null
+        var seriesTitle: String? = null
+        var seriesYear: Int? = null
         Network.open(api("get_series_info", "&series_id=${enc(seriesId)}")).use { input ->
             JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { reader ->
                 reader.beginObject()
                 while (reader.hasNext()) {
-                    if (reader.nextName() == "episodes" && reader.peek() == JsonToken.BEGIN_OBJECT) {
+                    val rootKey = reader.nextName()
+                    if (rootKey == "info" && reader.peek() == JsonToken.BEGIN_OBJECT) {
+                        val info = reader.readObject()
+                        seriesTmdbId = tmdbIdFrom(info)
+                        seriesTitle = firstText(info, "name", "title")
+                        seriesYear = yearFrom(info)
+                    } else if (rootKey == "episodes" && reader.peek() == JsonToken.BEGIN_OBJECT) {
                         reader.beginObject()
                         while (reader.hasNext()) {
                             val seasonLabel = reader.nextName()
@@ -111,7 +120,8 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                 reader.endObject()
             }
         }
-        return result.sortedWith(compareBy<MediaEntry> { it.season ?: Int.MAX_VALUE }.thenBy { it.episode ?: Int.MAX_VALUE })
+        return result.map { it.copy(tmdbId = seriesTmdbId, parentTitle = seriesTitle, year = seriesYear) }
+            .sortedWith(compareBy<MediaEntry> { it.season ?: Int.MAX_VALUE }.thenBy { it.episode ?: Int.MAX_VALUE })
     }
 
     fun details(media: MediaEntry): MediaEntry {
@@ -132,6 +142,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             year = yearFrom(info) ?: yearFrom(data) ?: media.year,
             durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(data).takeIf { it > 0 } ?: media.durationMs,
             subtitles = subtitleTracks(info, data, root).ifEmpty { media.subtitles },
+            tmdbId = tmdbIdFrom(info) ?: tmdbIdFrom(data) ?: tmdbIdFrom(root) ?: media.tmdbId,
         )
     }
 
@@ -230,6 +241,9 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             .map { o.optString(it).trim() }
             .firstOrNull { it.isNotBlank() && it != "null" }
         fun descriptionFrom(o: JSONObject): String? = firstText(o, "plot", "description", "overview", "storyline", "tmdb_plot")
+        fun tmdbIdFrom(o: JSONObject): Int? = sequenceOf("tmdb_id", "tmdb", "tmdbId")
+            .mapNotNull { key -> o.optString(key).trim().substringBefore('.').toIntOrNull() }
+            .firstOrNull { it > 0 }
         fun enc(value: String) = URLEncoder.encode(value, Charsets.UTF_8.name())
         fun epochMillis(value: String): Long = value.toLongOrNull()?.let { if (it < 10_000_000_000L) it * 1_000L else it } ?: 0L
         fun yearFrom(o: JSONObject): Int? = sequenceOf(o.optString("year"), o.optString("releaseDate"), o.optString("releasedate"), o.optString("name"))

@@ -151,6 +151,11 @@ class DroplayRepository(context: Context) {
                     it.optString("group"), it.optString("logo").takeIf(String::isNotBlank),
                     it.optString("parentSeriesId").takeIf(String::isNotBlank),
                     subtitlesFromJson(it.optJSONArray("subtitles")),
+                    it.optInt("season", -1).takeIf { value -> value >= 0 },
+                    it.optInt("episode", -1).takeIf { value -> value >= 0 },
+                    it.optInt("year", -1).takeIf { value -> value > 0 },
+                    it.optInt("tmdbId", -1).takeIf { value -> value > 0 },
+                    it.optString("parentTitle").takeIf(String::isNotBlank),
                 )
             }
         }
@@ -160,12 +165,15 @@ class DroplayRepository(context: Context) {
         if (media.kind == MediaKind.LIVE || media.id.isBlank() || positionMs < 2_000) return
         val records = history().filterNot { it.mediaId == media.id }.toMutableList()
         records.add(0, WatchRecord(media.id, positionMs, durationMs, System.currentTimeMillis(), media.name, media.url,
-            media.kind, media.group, media.logo, media.parentSeriesId, media.subtitles))
+            media.kind, media.group, media.logo, media.parentSeriesId, media.subtitles,
+            media.season, media.episode, media.year, media.tmdbId, media.parentTitle))
         val json = JSONArray()
         records.take(60).forEach { json.put(JSONObject().put("id", it.mediaId).put("position", it.positionMs)
             .put("duration", it.durationMs).put("at", it.watchedAt).put("name", it.name).put("url", it.url)
             .put("kind", it.kind.name).put("group", it.group).put("logo", it.logo ?: "")
-            .put("parentSeriesId", it.parentSeriesId ?: "").put("subtitles", subtitlesToJson(it.subtitles))) }
+            .put("parentSeriesId", it.parentSeriesId ?: "").put("subtitles", subtitlesToJson(it.subtitles))
+            .put("season", it.season ?: -1).put("episode", it.episode ?: -1).put("year", it.year ?: -1)
+            .put("tmdbId", it.tmdbId ?: -1).put("parentTitle", it.parentTitle ?: "")) }
         prefs.edit().putString("history", json.toString()).apply()
     }
 
