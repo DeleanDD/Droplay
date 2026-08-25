@@ -74,7 +74,7 @@ class OpenSubtitlesClient {
         connection.connectTimeout = 15_000
         connection.readTimeout = 30_000
         connection.instanceFollowRedirects = true
-        headers.forEach(connection::setRequestProperty)
+        for ((name, value) in headers) connection.setRequestProperty(name, value)
         if (body != null) {
             connection.doOutput = true
             connection.outputStream.use { it.write(body) }

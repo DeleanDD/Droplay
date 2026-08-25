@@ -7,10 +7,6 @@ import org.json.JSONObject
 import java.io.InputStreamReader
 import java.net.URLEncoder
 import java.net.URI
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 
 class XtreamClient(source: PlaylistSource.Xtream) {
     private val base = source.server.trim().trimEnd('/')
@@ -18,51 +14,18 @@ class XtreamClient(source: PlaylistSource.Xtream) {
     private val pass = enc(source.password)
     private fun api(action: String, extra: String = "") = "$base/player_api.php?username=$user&password=$pass&action=$action$extra"
 
-    fun validate() {
-        val auth = JSONObject(Network.text("$base/player_api.php?username=$user&password=$pass"))
-            .optJSONObject("user_info")?.optInt("auth", 0) ?: 0
+    fun validate(): XtreamAccountInfo {
+        val userInfo = JSONObject(Network.text("$base/player_api.php?username=$user&password=$pass")).optJSONObject("user_info") ?: JSONObject()
+        val auth = userInfo.optInt("auth", 0)
         require(auth == 1) { "Acesso Xtream recusado pelo servidor." }
+        val status = userInfo.optString("status")
+        require(status.lowercase() !in setOf("expired", "banned", "disabled")) { "A conta Xtream está ${status.lowercase()}." }
+        return XtreamAccountInfo(auth == 1, status, userInfo.optString("exp_date").toLongOrNull())
     }
 
-    suspend fun load(progress: (String) -> Unit = {}): List<MediaEntry> = coroutineScope {
-        progress("Validando o acesso Xtream…")
-        validate()
-        progress("Carregando categorias Xtream…")
-        val liveCategories = async(Dispatchers.IO) { categories("get_live_categories") }
-        val vodCategories = async(Dispatchers.IO) { categories("get_vod_categories") }
-        val seriesCategories = async(Dispatchers.IO) { categories("get_series_categories") }
-        progress("Baixando canais, filmes e séries…")
-        listOf(
-            async(Dispatchers.IO) { buildList {
-                val categories = liveCategories.await()
-            forEachItem("get_live_streams") { o ->
-                val id = o.optString("stream_id")
-                add(MediaEntry("live:$id", o.optString("name", "Canal"), "$base/live/$user/$pass/$id.ts", MediaKind.LIVE,
-                    categories[o.optString("category_id")] ?: "Ao vivo", o.optString("stream_icon").takeIf(String::isNotBlank), o.optString("epg_channel_id").takeIf(String::isNotBlank)))
-            }
-            } },
-            async(Dispatchers.IO) { buildList {
-                val categories = vodCategories.await()
-            forEachItem("get_vod_streams") { o ->
-                val id = o.optString("stream_id"); val ext = o.optString("container_extension", "mp4")
-                add(MediaEntry("movie:$id", o.optString("name", "Filme"), "$base/movie/$user/$pass/$id.$ext", MediaKind.MOVIE,
-                    categories[o.optString("category_id")] ?: "Filmes", o.optString("stream_icon").takeIf(String::isNotBlank),
-                    description = descriptionFrom(o), year = yearFrom(o),
-                    addedAt = epochMillis(o.optString("added")), durationMs = durationMillis(o)))
-            }
-            } },
-            async(Dispatchers.IO) { buildList {
-                val categories = seriesCategories.await()
-            forEachItem("get_series") { o ->
-                val id = o.optString("series_id")
-                add(MediaEntry("series:$id", o.optString("name", "Série"), "", MediaKind.SERIES,
-                    categories[o.optString("category_id")] ?: "Séries", o.optString("cover").takeIf(String::isNotBlank),
-                    description = descriptionFrom(o), backdrop = imageFrom(o, "backdrop_path"), seriesId = id,
-                    year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") })))
-            }
-            } },
-        ).awaitAll().flatten()
-    }
+    fun liveBatch(): XtreamBatch = batch("get_live_categories", "get_live_streams", MediaKind.LIVE)
+    fun vodBatch(): XtreamBatch = batch("get_vod_categories", "get_vod_streams", MediaKind.MOVIE)
+    fun seriesBatch(): XtreamBatch = batch("get_series_categories", "get_series", MediaKind.SERIES)
 
     fun episodes(seriesId: String): List<MediaEntry> {
         val result = ArrayList<MediaEntry>()
@@ -99,7 +62,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                                 result += MediaEntry(
                                     id = "episode:$id",
                                     name = o.optString("title", "Episódio $episodeNumber"),
-                                    url = "$base/series/$user/$pass/$id.$ext",
+                                    url = "",
                                     kind = MediaKind.MOVIE,
                                     group = "Temporada $seasonLabel",
                                     logo = firstText(info, "movie_image", "cover_big", "cover"),
@@ -109,6 +72,8 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                                     episode = episodeNumber,
                                     durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(o),
                                     subtitles = subtitleTracks(info, o),
+                                    streamId = id,
+                                    containerExtension = ext,
                                 )
                                 index++
                             }
@@ -131,11 +96,11 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         val info = root.optJSONObject("info") ?: JSONObject()
         val data = root.optJSONObject("movie_data") ?: JSONObject()
         val freshId = firstText(data, "stream_id", "id") ?: id
-        val currentExtension = media.url.substringBefore('?').substringAfterLast('/').substringAfterLast('.', "mp4")
+        val currentExtension = media.containerExtension ?: "mp4"
         val freshExtension = firstText(data, "container_extension")?.trimStart('.')?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) }
             ?: currentExtension
         return media.copy(
-            url = "$base/movie/$user/$pass/$freshId.$freshExtension",
+            url = "",
             description = descriptionFrom(info) ?: descriptionFrom(data) ?: media.description,
             logo = firstText(info, "movie_image", "cover_big", "cover") ?: media.logo,
             backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,
@@ -143,7 +108,34 @@ class XtreamClient(source: PlaylistSource.Xtream) {
             durationMs = durationMillis(info).takeIf { it > 0 } ?: durationMillis(data).takeIf { it > 0 } ?: media.durationMs,
             subtitles = subtitleTracks(info, data, root).ifEmpty { media.subtitles },
             tmdbId = tmdbIdFrom(info) ?: tmdbIdFrom(data) ?: tmdbIdFrom(root) ?: media.tmdbId,
+            streamId = freshId,
+            containerExtension = freshExtension,
         )
+    }
+
+    private fun batch(categoryAction: String, contentAction: String, kind: MediaKind): XtreamBatch {
+        val categoryMap = categories(categoryAction)
+        val entries = buildList {
+            forEachItem(contentAction) { o ->
+                val id = o.optString(if (kind == MediaKind.SERIES) "series_id" else "stream_id")
+                if (id.isBlank()) return@forEachItem
+                val categoryId = o.optString("category_id")
+                val extension = o.optString("container_extension", if (kind == MediaKind.LIVE) "ts" else "mp4")
+                add(MediaEntry(
+                    id = when (kind) { MediaKind.LIVE -> "live:$id"; MediaKind.MOVIE -> "movie:$id"; MediaKind.SERIES -> "series:$id" },
+                    name = o.optString("name", when (kind) { MediaKind.LIVE -> "Canal"; MediaKind.MOVIE -> "Filme"; MediaKind.SERIES -> "Série" }),
+                    url = "", kind = kind, group = categoryMap[categoryId] ?: "Outros",
+                    logo = o.optString(if (kind == MediaKind.SERIES) "cover" else "stream_icon").takeIf(String::isNotBlank),
+                    epgId = o.optString("epg_channel_id").takeIf(String::isNotBlank), description = descriptionFrom(o),
+                    backdrop = imageFrom(o, "backdrop_path"), seriesId = id.takeIf { kind == MediaKind.SERIES },
+                    year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") }),
+                    durationMs = durationMillis(o), streamId = id, categoryId = categoryId,
+                    containerExtension = extension, rating = ratingFrom(o),
+                ))
+            }
+        }
+        require(entries.isNotEmpty()) { "A seção Xtream retornou vazia." }
+        return XtreamBatch(kind, categoryMap, entries)
     }
 
     private fun categories(action: String): Map<String, String> = buildMap {
@@ -259,5 +251,10 @@ class XtreamClient(source: PlaylistSource.Xtream) {
                 else -> value.toLongOrNull()?.times(1_000L) ?: 0L
             }
         }
+        fun ratingFrom(o: JSONObject): Double? = sequenceOf("rating_5based", "rating", "vote_average")
+            .mapNotNull { o.optString(it).replace(',', '.').toDoubleOrNull() }.firstOrNull()
     }
 }
+
+data class XtreamBatch(val kind: MediaKind, val categories: Map<String, String>, val entries: List<MediaEntry>)
+data class XtreamAccountInfo(val authenticated: Boolean, val status: String, val expiresAtEpochSeconds: Long?)

@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -12,8 +13,9 @@ android {
         applicationId = "com.droplay.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.2.17"
+        versionCode = 21
+        versionName = "1.2.18"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -55,6 +57,8 @@ android {
     packaging.resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
 }
 
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.04.01")
     implementation(composeBom)
@@ -70,8 +74,17 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-rtsp:1.10.1")
     implementation("androidx.media3:media3-ui:1.10.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("androidx.room:room-runtime:2.7.1")
+    implementation("androidx.room:room-ktx:2.7.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    ksp("androidx.room:room-compiler:2.7.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.json:json:20250517")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.room:room-testing:2.7.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

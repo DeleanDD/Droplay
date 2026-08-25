@@ -535,6 +535,7 @@ private fun OpenSubtitlesResults(
     }
 }
 
+@OptIn(UnstableApi::class)
 private fun applySubtitleAppearance(view: PlayerView, appearance: SubtitleAppearance) {
     val foreground = when (appearance.color) {
         SubtitleColor.WHITE -> android.graphics.Color.WHITE

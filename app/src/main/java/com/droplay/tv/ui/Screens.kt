@@ -81,7 +81,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
     val currentPlayback = playing
 
     fun start(media: MediaEntry, at: Long) {
-        playing = PlaybackSession(media, at)
+        playing = PlaybackSession(viewModel.playbackMedia(media), at)
         viewModel.recordPlaybackStarted(media.id)
     }
     fun requestPlay(media: MediaEntry, offerVariants: Boolean = true) {
@@ -427,7 +427,7 @@ private fun CatalogScreen(
             val needle = query.trim()
             searchResults = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 catalog.asSequence()
-                    .filter { it.name.contains(needle, true) || it.group.contains(needle, true) }
+                    .filter { SearchNormalizer.matches(it, needle) }
                     .take(240)
                     .toList()
             }
@@ -832,16 +832,25 @@ private fun CatalogScreen(
         item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Atualização da biblioteca", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("Por padrão, a lista é baixada uma vez por semana. O catálogo salvo abre imediatamente.", color = Muted)
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    CategoryTab("Toda abertura", state.refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
-                    CategoryTab("1x ao dia", state.refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
-                    CategoryTab("1x por semana", state.refreshInterval == RefreshInterval.WEEKLY) { setRefreshInterval(RefreshInterval.WEEKLY) }
-                    CategoryTab("1x por mês", state.refreshInterval == RefreshInterval.MONTHLY) { setRefreshInterval(RefreshInterval.MONTHLY) }
+                Text(if (state.source is PlaylistSource.Xtream) "O cache abre imediatamente. Canais são verificados a cada 30 min; filmes e séries, a cada 6 h, sempre em segundo plano."
+                    else "O catálogo salvo abre imediatamente; escolha o intervalo da lista M3U.", color = Muted)
+                if (state.source !is PlaylistSource.Xtream) Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        CategoryTab("Toda abertura", state.refreshInterval == RefreshInterval.EVERY_LAUNCH) { setRefreshInterval(RefreshInterval.EVERY_LAUNCH) }
+                        CategoryTab("1x ao dia", state.refreshInterval == RefreshInterval.DAILY) { setRefreshInterval(RefreshInterval.DAILY) }
+                        CategoryTab("1x por semana", state.refreshInterval == RefreshInterval.WEEKLY) { setRefreshInterval(RefreshInterval.WEEKLY) }
+                        CategoryTab("1x por mês", state.refreshInterval == RefreshInterval.MONTHLY) { setRefreshInterval(RefreshInterval.MONTHLY) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (state.lastRefreshMs > 0) "Última atualização: ${formatDate(state.lastRefreshMs)}" else "Ainda não atualizado", Modifier.weight(1f), color = Muted, fontSize = 12.sp)
                     ModernButton("↻  Atualizar agora", refresh, primary = false)
+                }
+                if (state.syncStates.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf(CatalogSection.LIVE to "Canais", CatalogSection.VOD to "Filmes", CatalogSection.SERIES to "Séries").forEach { (section, label) ->
+                            val sync = state.syncStates[section]
+                            Text("$label: ${syncPhaseLabel(sync?.phase ?: SyncPhase.Idle)}", color = if (sync?.phase == SyncPhase.Error) Coral else Muted, fontSize = 11.sp)
+                        }
+                    }
                 }
             }
         } }
@@ -862,6 +871,16 @@ private fun CatalogScreen(
     }, confirmButton = { ModernButton("Liberar", {
         if (pin == "0000") { setAdultContent(true); askPin = false } else pinError = true
     }, enabled = pin.length == 4) }, dismissButton = { ModernButton("Cancelar", { askPin = false }, primary = false) })
+}
+
+private fun syncPhaseLabel(phase: SyncPhase): String = when (phase) {
+    SyncPhase.Idle -> "aguardando"
+    SyncPhase.Loading -> "carregando"
+    SyncPhase.UsingCache -> "usando cache"
+    SyncPhase.Refreshing -> "atualizando"
+    SyncPhase.Success -> "atualizado"
+    SyncPhase.PartialSuccess -> "parcial"
+    SyncPhase.Error -> "falhou (cache preservado)"
 }
 
 @Composable private fun ResumeDialog(media: MediaEntry, record: WatchRecord, onDismiss: () -> Unit, onResume: () -> Unit, onRestart: () -> Unit) {

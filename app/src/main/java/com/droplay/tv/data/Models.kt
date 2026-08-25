@@ -38,6 +38,20 @@ data class MediaEntry(
     val subtitles: List<SubtitleTrack> = emptyList(),
     val tmdbId: Int? = null,
     val parentTitle: String? = null,
+    val streamId: String? = null,
+    val categoryId: String? = null,
+    val containerExtension: String? = null,
+    val rating: Double? = null,
+)
+
+enum class CatalogSection { LIVE, VOD, SERIES, CATEGORIES, DETAILS, EPG }
+enum class SyncPhase { Idle, Loading, UsingCache, Refreshing, Success, PartialSuccess, Error }
+
+data class SectionSyncState(
+    val phase: SyncPhase = SyncPhase.Idle,
+    val message: String? = null,
+    val lastSuccessfulSyncAt: Long = 0L,
+    val itemCount: Int = 0,
 )
 
 data class EpgProgram(
