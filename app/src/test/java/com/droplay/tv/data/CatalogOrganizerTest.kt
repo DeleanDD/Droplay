@@ -10,7 +10,7 @@ class CatalogOrganizerTest {
         val entries = listOf(
             entry("Filme comum", MediaKind.MOVIE, "Ação"),
             entry("Conteúdo XXX", MediaKind.MOVIE, "Adultos"),
-            entry("FILME CINEMA 2026", MediaKind.MOVIE, "Lançamentos"),
+            entry("FILME HDCAM 2026", MediaKind.MOVIE, "Lançamentos"),
             entry("CHECKLIST", MediaKind.LIVE, "Canais do cliente"),
             entry("Série Brasil Paralelo", MediaKind.SERIES, "Documentários"),
         )

@@ -34,8 +34,7 @@ object CatalogOrganizer {
     fun visibleEntries(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): List<MediaEntry> =
         entries.asSequence()
             .filterNot(::isAlwaysBlocked)
-            .filter { showAdult || !isAdult(it) }
-            .filter { showCinema || !isCinema(it) }
+            .filterNot { it.isHidden || isAdult(it) || isCinema(it) }
             .toList()
 
     fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): PreparedCatalog {
@@ -86,19 +85,17 @@ object CatalogOrganizer {
     }
 
     fun isAdult(item: MediaEntry): Boolean {
-        val text = normalized("${item.group} ${item.name}")
-        if (text.contains("adult swim") && listOf("porn", "xxx", "+18", "18+").none(text::contains)) return false
-        return listOf("adult", "porn", "porno", "xxx", "erotico", "erotica", "+18", "18+", "18 anos", "onlyfans", "playboy", "sexy hot", "hentai", "redlight", "private spice")
-            .any(text::contains)
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isAdult
+        return ContentClassificationEngine.classify(ClassificationInput(item.name, item.group, item.kind)).isAdult
     }
 
     fun isCinema(item: MediaEntry): Boolean {
-        if (item.kind != MediaKind.MOVIE) return false
-        val name = normalized(item.name)
-        return normalized(item.group).contains("cinema") || name.contains("cinema") || Regex("(^|\\s|\\[)cam(\\]|\\s|$)").containsMatchIn(name)
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isLowQualityCinema
+        return ContentClassificationEngine.classify(ClassificationInput(item.name, item.group, item.kind)).isLowQualityCinema
     }
 
     fun isKids(item: MediaEntry): Boolean {
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isKids && !item.isHidden
         val group = normalized(item.group)
         val name = normalized(item.name)
         val categorySignals = listOf("infantil", "kids", "crianca", "desenho", "cartoon", "baby", "junior", "nick jr", "disney jr", "discovery kids", "gloob", "boomerang", "toon")
@@ -112,6 +109,7 @@ object CatalogOrganizer {
     }
 
     fun isNational(item: MediaEntry): Boolean {
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isBrazilian && !item.isHidden
         if (item.kind == MediaKind.LIVE) return false
         val text = normalized("${item.group} ${item.name}")
         val brazilianNovela = text.contains("novela") && listOf("turca", "mexic", "corean", "doramas").none(text::contains)

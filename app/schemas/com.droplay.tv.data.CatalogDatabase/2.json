@@ -1,0 +1,1222 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "2cf06e0150b73232d1757cf00203727b",
+    "entities": [
+      {
+        "tableName": "playlist_accounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `sourceKey` TEXT NOT NULL, `baseUrl` TEXT NOT NULL, `username` TEXT NOT NULL, `credentialAlias` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`playlistId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceKey",
+            "columnName": "sourceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "baseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "credentialAlias",
+            "columnName": "credentialAlias",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playlist_accounts_sourceKey",
+            "unique": true,
+            "columnNames": [
+              "sourceKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_playlist_accounts_sourceKey` ON `${TABLE_NAME}` (`sourceKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "live_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `isBlocked` INTEGER NOT NULL, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `categoryId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBlocked",
+            "columnName": "isBlocked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_live_categories_playlistId",
+            "unique": false,
+            "columnNames": [
+              "playlistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_categories_playlistId` ON `${TABLE_NAME}` (`playlistId`)"
+          },
+          {
+            "name": "index_live_categories_playlistId_name",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_categories_playlistId_name` ON `${TABLE_NAME}` (`playlistId`, `name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "vod_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `isBlocked` INTEGER NOT NULL, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `categoryId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBlocked",
+            "columnName": "isBlocked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_vod_categories_playlistId",
+            "unique": false,
+            "columnNames": [
+              "playlistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_categories_playlistId` ON `${TABLE_NAME}` (`playlistId`)"
+          },
+          {
+            "name": "index_vod_categories_playlistId_name",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_categories_playlistId_name` ON `${TABLE_NAME}` (`playlistId`, `name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "series_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `isBlocked` INTEGER NOT NULL, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `categoryId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBlocked",
+            "columnName": "isBlocked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_series_categories_playlistId",
+            "unique": false,
+            "columnNames": [
+              "playlistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_categories_playlistId` ON `${TABLE_NAME}` (`playlistId`)"
+          },
+          {
+            "name": "index_series_categories_playlistId_name",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "name"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_categories_playlistId_name` ON `${TABLE_NAME}` (`playlistId`, `name`)"
+          }
+        ]
+      },
+      {
+        "tableName": "live_streams",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `streamId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `normalizedCategoryName` TEXT NOT NULL, `icon` TEXT, `epgId` TEXT, `addedAt` INTEGER NOT NULL, `extension` TEXT NOT NULL, `isAdult` INTEGER NOT NULL, `isLowQualityCinema` INTEGER NOT NULL, `isKids` INTEGER NOT NULL, `isBrazilian` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `classificationReason` TEXT, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `streamId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedCategoryName",
+            "columnName": "normalizedCategoryName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "epgId",
+            "columnName": "epgId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAdult",
+            "columnName": "isAdult",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLowQualityCinema",
+            "columnName": "isLowQualityCinema",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isKids",
+            "columnName": "isKids",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBrazilian",
+            "columnName": "isBrazilian",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isHidden",
+            "columnName": "isHidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationReason",
+            "columnName": "classificationReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "streamId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_live_streams_playlistId_categoryId",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_categoryId` ON `${TABLE_NAME}` (`playlistId`, `categoryId`)"
+          },
+          {
+            "name": "index_live_streams_playlistId_normalizedName",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "normalizedName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_normalizedName` ON `${TABLE_NAME}` (`playlistId`, `normalizedName`)"
+          },
+          {
+            "name": "index_live_streams_playlistId_addedAt",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "addedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_addedAt` ON `${TABLE_NAME}` (`playlistId`, `addedAt`)"
+          },
+          {
+            "name": "index_live_streams_playlistId_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isHidden`)"
+          },
+          {
+            "name": "index_live_streams_playlistId_isKids_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isKids",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_isKids_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isKids`, `isHidden`)"
+          },
+          {
+            "name": "index_live_streams_playlistId_isBrazilian_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isBrazilian",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_streams_playlistId_isBrazilian_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isBrazilian`, `isHidden`)"
+          }
+        ]
+      },
+      {
+        "tableName": "vod_streams",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `streamId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `normalizedCategoryName` TEXT NOT NULL, `icon` TEXT, `addedAt` INTEGER NOT NULL, `extension` TEXT NOT NULL, `year` INTEGER, `rating` REAL, `description` TEXT, `durationMs` INTEGER NOT NULL, `isAdult` INTEGER NOT NULL, `isLowQualityCinema` INTEGER NOT NULL, `isKids` INTEGER NOT NULL, `isBrazilian` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `classificationReason` TEXT, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `streamId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedCategoryName",
+            "columnName": "normalizedCategoryName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAdult",
+            "columnName": "isAdult",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLowQualityCinema",
+            "columnName": "isLowQualityCinema",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isKids",
+            "columnName": "isKids",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBrazilian",
+            "columnName": "isBrazilian",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isHidden",
+            "columnName": "isHidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationReason",
+            "columnName": "classificationReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "streamId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_vod_streams_playlistId_categoryId",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_categoryId` ON `${TABLE_NAME}` (`playlistId`, `categoryId`)"
+          },
+          {
+            "name": "index_vod_streams_playlistId_normalizedName",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "normalizedName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_normalizedName` ON `${TABLE_NAME}` (`playlistId`, `normalizedName`)"
+          },
+          {
+            "name": "index_vod_streams_playlistId_addedAt",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "addedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_addedAt` ON `${TABLE_NAME}` (`playlistId`, `addedAt`)"
+          },
+          {
+            "name": "index_vod_streams_playlistId_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isHidden`)"
+          },
+          {
+            "name": "index_vod_streams_playlistId_isKids_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isKids",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_isKids_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isKids`, `isHidden`)"
+          },
+          {
+            "name": "index_vod_streams_playlistId_isBrazilian_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isBrazilian",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_vod_streams_playlistId_isBrazilian_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isBrazilian`, `isHidden`)"
+          }
+        ]
+      },
+      {
+        "tableName": "series",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `seriesId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `name` TEXT NOT NULL, `normalizedName` TEXT NOT NULL, `normalizedCategoryName` TEXT NOT NULL, `cover` TEXT, `backdrop` TEXT, `addedAt` INTEGER NOT NULL, `year` INTEGER, `rating` REAL, `description` TEXT, `isAdult` INTEGER NOT NULL, `isLowQualityCinema` INTEGER NOT NULL, `isKids` INTEGER NOT NULL, `isBrazilian` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `classificationReason` TEXT, `classificationVersion` INTEGER NOT NULL, `syncVersion` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `seriesId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesId",
+            "columnName": "seriesId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedName",
+            "columnName": "normalizedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedCategoryName",
+            "columnName": "normalizedCategoryName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cover",
+            "columnName": "cover",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backdrop",
+            "columnName": "backdrop",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rating",
+            "columnName": "rating",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isAdult",
+            "columnName": "isAdult",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLowQualityCinema",
+            "columnName": "isLowQualityCinema",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isKids",
+            "columnName": "isKids",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isBrazilian",
+            "columnName": "isBrazilian",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isHidden",
+            "columnName": "isHidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "classificationReason",
+            "columnName": "classificationReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "classificationVersion",
+            "columnName": "classificationVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "seriesId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_series_playlistId_categoryId",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_categoryId` ON `${TABLE_NAME}` (`playlistId`, `categoryId`)"
+          },
+          {
+            "name": "index_series_playlistId_normalizedName",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "normalizedName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_normalizedName` ON `${TABLE_NAME}` (`playlistId`, `normalizedName`)"
+          },
+          {
+            "name": "index_series_playlistId_addedAt",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "addedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_addedAt` ON `${TABLE_NAME}` (`playlistId`, `addedAt`)"
+          },
+          {
+            "name": "index_series_playlistId_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isHidden`)"
+          },
+          {
+            "name": "index_series_playlistId_isKids_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isKids",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_isKids_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isKids`, `isHidden`)"
+          },
+          {
+            "name": "index_series_playlistId_isBrazilian_isHidden",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "isBrazilian",
+              "isHidden"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_series_playlistId_isBrazilian_isHidden` ON `${TABLE_NAME}` (`playlistId`, `isBrazilian`, `isHidden`)"
+          }
+        ]
+      },
+      {
+        "tableName": "episodes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `episodeId` TEXT NOT NULL, `seriesId` TEXT NOT NULL, `name` TEXT NOT NULL, `season` INTEGER, `episode` INTEGER, `extension` TEXT NOT NULL, `icon` TEXT, `durationMs` INTEGER NOT NULL, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `episodeId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "episodeId",
+            "columnName": "episodeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesId",
+            "columnName": "seriesId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "season",
+            "columnName": "season",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "episode",
+            "columnName": "episode",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "episodeId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_episodes_playlistId_seriesId",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "seriesId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_episodes_playlistId_seriesId` ON `${TABLE_NAME}` (`playlistId`, `seriesId`)"
+          },
+          {
+            "name": "index_episodes_playlistId_seriesId_season_episode",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "seriesId",
+              "season",
+              "episode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_episodes_playlistId_seriesId_season_episode` ON `${TABLE_NAME}` (`playlistId`, `seriesId`, `season`, `episode`)"
+          }
+        ]
+      },
+      {
+        "tableName": "media_details",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `mediaId` TEXT NOT NULL, `description` TEXT, `logo` TEXT, `backdrop` TEXT, `year` INTEGER, `durationMs` INTEGER NOT NULL, `subtitlesJson` TEXT NOT NULL, `tmdbId` INTEGER, `streamId` TEXT, `extension` TEXT, `cachedAt` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `mediaId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "logo",
+            "columnName": "logo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backdrop",
+            "columnName": "backdrop",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subtitlesJson",
+            "columnName": "subtitlesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "extension",
+            "columnName": "extension",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cachedAt",
+            "columnName": "cachedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "mediaId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_media_details_playlistId_cachedAt",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "cachedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_media_details_playlistId_cachedAt` ON `${TABLE_NAME}` (`playlistId`, `cachedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `section` TEXT NOT NULL, `lastAttemptAt` INTEGER NOT NULL, `lastSuccessfulSyncAt` INTEGER NOT NULL, `lastError` TEXT, `syncVersion` INTEGER NOT NULL, `itemCount` INTEGER NOT NULL, `etag` TEXT, `lastModified` TEXT, `state` TEXT NOT NULL, PRIMARY KEY(`playlistId`, `section`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "section",
+            "columnName": "section",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSuccessfulSyncAt",
+            "columnName": "lastSuccessfulSyncAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncVersion",
+            "columnName": "syncVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemCount",
+            "columnName": "itemCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "lastModified",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "section"
+          ]
+        }
+      },
+      {
+        "tableName": "favorites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `mediaId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `mediaId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "mediaId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_favorites_playlistId",
+            "unique": false,
+            "columnNames": [
+              "playlistId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_favorites_playlistId` ON `${TABLE_NAME}` (`playlistId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "watch_progress",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` TEXT NOT NULL, `mediaId` TEXT NOT NULL, `positionMs` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, `watchedAt` INTEGER NOT NULL, PRIMARY KEY(`playlistId`, `mediaId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaId",
+            "columnName": "mediaId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "positionMs",
+            "columnName": "positionMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchedAt",
+            "columnName": "watchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "mediaId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_watch_progress_playlistId_watchedAt",
+            "unique": false,
+            "columnNames": [
+              "playlistId",
+              "watchedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_progress_playlistId_watchedAt` ON `${TABLE_NAME}` (`playlistId`, `watchedAt`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2cf06e0150b73232d1757cf00203727b')"
+    ]
+  }
+}

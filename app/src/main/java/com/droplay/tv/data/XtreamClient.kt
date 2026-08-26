@@ -114,32 +114,69 @@ class XtreamClient(source: PlaylistSource.Xtream) {
     }
 
     private fun batch(categoryAction: String, contentAction: String, kind: MediaKind): XtreamBatch {
-        val categoryMap = categories(categoryAction)
+        val batchStarted = System.nanoTime()
+        val categories = categories(categoryAction)
+        val categoryMap = categories.allowed
+        var adultBlocked = 0
+        var cinemaBlocked = 0
+        var kids = 0
+        var brazilian = 0
+        var classificationNanos = 0L
+        var received = 0
         val entries = buildList {
             forEachItem(contentAction) { o ->
+                received++
                 val id = o.optString(if (kind == MediaKind.SERIES) "series_id" else "stream_id")
                 if (id.isBlank()) return@forEachItem
                 val categoryId = o.optString("category_id")
+                if (categoryId in categories.blockedIds) { adultBlocked++; return@forEachItem }
                 val extension = o.optString("container_extension", if (kind == MediaKind.LIVE) "ts" else "mp4")
+                val name = o.optString("name", when (kind) { MediaKind.LIVE -> "Canal"; MediaKind.MOVIE -> "Filme"; MediaKind.SERIES -> "Série" })
+                val group = categoryMap[categoryId] ?: "Outros"
+                val started = System.nanoTime()
+                val classification = ContentClassificationEngine.classify(ClassificationInput(
+                    name, group, kind,
+                    serverAdult = o.optBoolean("is_adult") || o.optBoolean("adult") || o.optInt("is_adult", 0) == 1 || o.optInt("adult", 0) == 1,
+                    country = firstText(o, "country", "production_country", "origin_country"),
+                    genre = firstText(o, "genre", "genres"), parentalRating = firstText(o, "age", "age_rating", "certification", "rated"),
+                ))
+                classificationNanos += System.nanoTime() - started
+                if (classification.isAdult) adultBlocked++
+                if (classification.isLowQualityCinema) cinemaBlocked++
+                if (classification.isKids) kids++
+                if (classification.isBrazilian) brazilian++
                 add(MediaEntry(
                     id = when (kind) { MediaKind.LIVE -> "live:$id"; MediaKind.MOVIE -> "movie:$id"; MediaKind.SERIES -> "series:$id" },
-                    name = o.optString("name", when (kind) { MediaKind.LIVE -> "Canal"; MediaKind.MOVIE -> "Filme"; MediaKind.SERIES -> "Série" }),
-                    url = "", kind = kind, group = categoryMap[categoryId] ?: "Outros",
+                    name = name, url = "", kind = kind, group = group,
                     logo = o.optString(if (kind == MediaKind.SERIES) "cover" else "stream_icon").takeIf(String::isNotBlank),
                     epgId = o.optString("epg_channel_id").takeIf(String::isNotBlank), description = descriptionFrom(o),
                     backdrop = imageFrom(o, "backdrop_path"), seriesId = id.takeIf { kind == MediaKind.SERIES },
                     year = yearFrom(o), addedAt = epochMillis(o.optString("last_modified").ifBlank { o.optString("added") }),
                     durationMs = durationMillis(o), streamId = id, categoryId = categoryId,
                     containerExtension = extension, rating = ratingFrom(o),
+                    normalizedName = classification.normalizedName, normalizedCategoryName = classification.normalizedCategoryName,
+                    isAdult = classification.isAdult, isLowQualityCinema = classification.isLowQualityCinema,
+                    isKids = classification.isKids, isBrazilian = classification.isBrazilian, isHidden = classification.isHidden,
+                    classificationReason = classification.reason.name, classificationVersion = classification.version,
                 ))
             }
         }
-        require(entries.isNotEmpty()) { "A seção Xtream retornou vazia." }
-        return XtreamBatch(kind, categoryMap, entries)
+        val classificationMs = classificationNanos / 1_000_000L
+        val totalMs = (System.nanoTime() - batchStarted) / 1_000_000L
+        return XtreamBatch(kind, categoryMap, entries, ClassificationMetrics(received, adultBlocked, cinemaBlocked, kids, brazilian, classificationMs,
+            networkAndParsingMs = (totalMs - classificationMs).coerceAtLeast(0L)))
     }
 
-    private fun categories(action: String): Map<String, String> = buildMap {
-        forEachItem(action) { put(it.optString("category_id"), it.optString("category_name", "Outros")) }
+    private fun categories(action: String): XtreamCategories {
+        val allowed = LinkedHashMap<String, String>()
+        val blocked = HashSet<String>()
+        forEachItem(action) {
+            val id = it.optString("category_id")
+            val name = it.optString("category_name", "Outros")
+            if (ContentClassificationEngine.isBlockedCategory(name, it.optBoolean("is_adult") || it.optInt("is_adult", 0) == 1)) blocked += id
+            else allowed[id] = name
+        }
+        return XtreamCategories(allowed, blocked)
     }
 
     /**
@@ -256,5 +293,7 @@ class XtreamClient(source: PlaylistSource.Xtream) {
     }
 }
 
-data class XtreamBatch(val kind: MediaKind, val categories: Map<String, String>, val entries: List<MediaEntry>)
+data class XtreamBatch(val kind: MediaKind, val categories: Map<String, String>, val entries: List<MediaEntry>, val classificationMetrics: ClassificationMetrics = ClassificationMetrics())
 data class XtreamAccountInfo(val authenticated: Boolean, val status: String, val expiresAtEpochSeconds: Long?)
+private data class XtreamCategories(val allowed: Map<String, String>, val blockedIds: Set<String>)
+data class ClassificationMetrics(val received: Int = 0, val adultBlocked: Int = 0, val cinemaBlocked: Int = 0, val kids: Int = 0, val brazilian: Int = 0, val classificationMs: Long = 0L, val networkAndParsingMs: Long = 0L, val persistenceMs: Long = 0L, val approximateMemoryBytes: Long = 0L)

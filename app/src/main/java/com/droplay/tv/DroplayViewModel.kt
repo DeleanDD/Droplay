@@ -76,6 +76,13 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
                     delay(10_000)
                     runCatching { repository.ensureFastCache(source, cached.entries) }
                     runCatching { repository.ensureRoomCache(source, cached.entries) }
+                    val reclassified = runCatching { repository.reclassifyIfNeeded(source) }.getOrNull()
+                    if (reclassified != null && generation == loadGeneration) {
+                        repository.cached(source)?.let { updated ->
+                            val refreshed = withContext(Dispatchers.Default) { CatalogOrganizer.prepare(updated.entries, preferences.showAdultContent, preferences.showCinemaContent) }
+                            if (generation == loadGeneration && _state.value.source == source) _state.value = _state.value.copy(catalog = updated, preparedCatalog = refreshed)
+                        }
+                    }
                 }
                 if (refreshDue) refreshCatalogInBackground(source, generation, preferences, immediate = force)
                 return@launch

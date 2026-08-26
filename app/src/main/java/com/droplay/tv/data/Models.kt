@@ -42,6 +42,15 @@ data class MediaEntry(
     val categoryId: String? = null,
     val containerExtension: String? = null,
     val rating: Double? = null,
+    val normalizedName: String = "",
+    val normalizedCategoryName: String = "",
+    val isAdult: Boolean = false,
+    val isLowQualityCinema: Boolean = false,
+    val isKids: Boolean = false,
+    val isBrazilian: Boolean = false,
+    val isHidden: Boolean = false,
+    val classificationReason: String? = null,
+    val classificationVersion: Int = 0,
 )
 
 enum class CatalogSection { LIVE, VOD, SERIES, CATEGORIES, DETAILS, EPG }

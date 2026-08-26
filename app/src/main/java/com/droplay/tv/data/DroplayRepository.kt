@@ -194,22 +194,31 @@ class DroplayRepository(context: Context) {
     }
 
     private suspend fun persistBatch(playlistId: String, batch: XtreamBatch) {
+        val persistenceStarted = System.nanoTime()
         val version = System.currentTimeMillis()
         val now = System.currentTimeMillis()
         val meta = SyncMetadataEntity(playlistId, batch.kind.name, now, now, null, version, batch.entries.size, null, null, SyncPhase.Success.name)
         when (batch.kind) {
             MediaKind.LIVE -> dao.replaceLive(playlistId,
-                batch.categories.map { LiveCategoryEntity(playlistId, it.key, it.value, version) },
-                batch.entries.map { LiveStreamEntity(playlistId, it.streamId.orEmpty(), it.categoryId.orEmpty(), it.name, SearchNormalizer.normalize(it.name), it.logo, it.epgId, it.addedAt, it.containerExtension ?: "ts", version) }, meta)
+                batch.categories.map { LiveCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.entries.map { item -> val c = item.classification(); LiveStreamEntity(playlistId, item.streamId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.epgId, item.addedAt, item.containerExtension ?: "ts", c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
             MediaKind.MOVIE -> dao.replaceVod(playlistId,
-                batch.categories.map { VodCategoryEntity(playlistId, it.key, it.value, version) },
-                batch.entries.map { VodStreamEntity(playlistId, it.streamId.orEmpty(), it.categoryId.orEmpty(), it.name, SearchNormalizer.normalize(it.name), it.logo, it.addedAt, it.containerExtension ?: "mp4", it.year, it.rating, it.description, it.durationMs, version) }, meta)
+                batch.categories.map { VodCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.entries.map { item -> val c = item.classification(); VodStreamEntity(playlistId, item.streamId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.addedAt, item.containerExtension ?: "mp4", item.year, item.rating, item.description, item.durationMs, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
             MediaKind.SERIES -> dao.replaceSeries(playlistId,
-                batch.categories.map { SeriesCategoryEntity(playlistId, it.key, it.value, version) },
-                batch.entries.map { SeriesEntity(playlistId, it.seriesId.orEmpty(), it.categoryId.orEmpty(), it.name, SearchNormalizer.normalize(it.name), it.logo, it.backdrop, it.addedAt, it.year, it.rating, it.description, version) }, meta)
+                batch.categories.map { SeriesCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.entries.map { item -> val c = item.classification(); SeriesEntity(playlistId, item.seriesId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.backdrop, item.addedAt, item.year, item.rating, item.description, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
         }
         prefs.edit().putBoolean("room_catalog_ready", true).apply()
         prefs.edit().putLong("last_sync_${batch.kind.name}", now).apply()
+        val runtime = Runtime.getRuntime()
+        val metrics = batch.classificationMetrics.copy(persistenceMs = (System.nanoTime() - persistenceStarted) / 1_000_000L,
+            approximateMemoryBytes = runtime.totalMemory() - runtime.freeMemory())
+        prefs.edit().putString("classification_metrics_${batch.kind.name}", JSONObject()
+            .put("received", metrics.received).put("adultBlocked", metrics.adultBlocked).put("cinemaBlocked", metrics.cinemaBlocked)
+            .put("kids", metrics.kids).put("brazilian", metrics.brazilian).put("networkAndParsingMs", metrics.networkAndParsingMs)
+            .put("classificationMs", metrics.classificationMs).put("persistenceMs", metrics.persistenceMs)
+            .put("approximateMemoryBytes", metrics.approximateMemoryBytes).toString()).apply()
     }
 
     private suspend fun readDatabaseCatalog(source: PlaylistSource.Xtream): Catalog? {
@@ -218,11 +227,16 @@ class DroplayRepository(context: Context) {
         val vodCategories = dao.vodCategories(id).associate { it.categoryId to it.name }
         val seriesCategories = dao.seriesCategories(id).associate { it.categoryId to it.name }
         val entries = ArrayList<MediaEntry>(dao.liveCount(id) + dao.vodCount(id) + dao.seriesCount(id))
-        dao.live(id).mapTo(entries) { MediaEntry("live:${it.streamId}", it.name, "", MediaKind.LIVE, liveCategories[it.categoryId] ?: "Ao vivo", it.icon, it.epgId, addedAt = it.addedAt, streamId = it.streamId, categoryId = it.categoryId, containerExtension = it.extension) }
-        dao.vod(id).mapTo(entries) { MediaEntry("movie:${it.streamId}", it.name, "", MediaKind.MOVIE, vodCategories[it.categoryId] ?: "Filmes", it.icon, description = it.description, year = it.year, addedAt = it.addedAt, durationMs = it.durationMs, streamId = it.streamId, categoryId = it.categoryId, containerExtension = it.extension, rating = it.rating) }
-        dao.series(id).mapTo(entries) { MediaEntry("series:${it.seriesId}", it.name, "", MediaKind.SERIES, seriesCategories[it.categoryId] ?: "Séries", it.cover, description = it.description, backdrop = it.backdrop, seriesId = it.seriesId, year = it.year, addedAt = it.addedAt, streamId = it.seriesId, categoryId = it.categoryId, rating = it.rating) }
+        dao.live(id).mapTo(entries) { MediaEntry("live:${it.streamId}", it.name, "", MediaKind.LIVE, liveCategories[it.categoryId] ?: "Ao vivo", it.icon, it.epgId, addedAt = it.addedAt, streamId = it.streamId, categoryId = it.categoryId, containerExtension = it.extension, normalizedName = it.normalizedName, normalizedCategoryName = it.normalizedCategoryName, isAdult = it.isAdult, isLowQualityCinema = it.isLowQualityCinema, isKids = it.isKids, isBrazilian = it.isBrazilian, isHidden = it.isHidden, classificationReason = it.classificationReason, classificationVersion = it.classificationVersion) }
+        dao.vod(id).mapTo(entries) { MediaEntry("movie:${it.streamId}", it.name, "", MediaKind.MOVIE, vodCategories[it.categoryId] ?: "Filmes", it.icon, description = it.description, year = it.year, addedAt = it.addedAt, durationMs = it.durationMs, streamId = it.streamId, categoryId = it.categoryId, containerExtension = it.extension, rating = it.rating, normalizedName = it.normalizedName, normalizedCategoryName = it.normalizedCategoryName, isAdult = it.isAdult, isLowQualityCinema = it.isLowQualityCinema, isKids = it.isKids, isBrazilian = it.isBrazilian, isHidden = it.isHidden, classificationReason = it.classificationReason, classificationVersion = it.classificationVersion) }
+        dao.series(id).mapTo(entries) { MediaEntry("series:${it.seriesId}", it.name, "", MediaKind.SERIES, seriesCategories[it.categoryId] ?: "Séries", it.cover, description = it.description, backdrop = it.backdrop, seriesId = it.seriesId, year = it.year, addedAt = it.addedAt, streamId = it.seriesId, categoryId = it.categoryId, rating = it.rating, normalizedName = it.normalizedName, normalizedCategoryName = it.normalizedCategoryName, isAdult = it.isAdult, isLowQualityCinema = it.isLowQualityCinema, isKids = it.isKids, isBrazilian = it.isBrazilian, isHidden = it.isHidden, classificationReason = it.classificationReason, classificationVersion = it.classificationVersion) }
         return Catalog(entries).takeIf { entries.isNotEmpty() }
     }
+
+    private fun MediaEntry.classification(): ContentClassification = if (classificationVersion == ContentClassificationEngine.VERSION) {
+        ContentClassification(normalizedName, normalizedCategoryName, isAdult, isLowQualityCinema, isKids, isBrazilian, isHidden,
+            runCatching { ClassificationReason.valueOf(classificationReason.orEmpty()) }.getOrDefault(ClassificationReason.NONE), ClassificationConfidence.HIGH, classificationVersion)
+    } else ContentClassificationEngine.classify(ClassificationInput(name, group, kind))
 
     private suspend fun persistLegacyCatalog(source: PlaylistSource.Xtream, entries: List<MediaEntry>) {
         val batches = entries.groupBy(MediaEntry::kind).map { (kind, values) ->
@@ -243,6 +257,36 @@ class DroplayRepository(context: Context) {
                 migrateUserState(sourceKey(source))
                 fastCache.delete(); cache.delete()
             }
+        }
+    }
+
+    suspend fun reclassifyIfNeeded(source: PlaylistSource): ClassificationMetrics? {
+        if (source !is PlaylistSource.Xtream) return null
+        val playlistId = sourceKey(source)
+        val outdated = dao.outdatedLive(playlistId, ContentClassificationEngine.VERSION) +
+            dao.outdatedVod(playlistId, ContentClassificationEngine.VERSION) + dao.outdatedSeries(playlistId, ContentClassificationEngine.VERSION)
+        if (outdated == 0) return null
+        return syncMutex.withLock {
+            val liveCategoryNames = dao.liveCategories(playlistId).associate { it.categoryId to it.name }
+            val vodCategoryNames = dao.vodCategories(playlistId).associate { it.categoryId to it.name }
+            val seriesCategoryNames = dao.seriesCategories(playlistId).associate { it.categoryId to it.name }
+            var adult = 0; var cinema = 0; var kids = 0; var brazilian = 0; var received = 0
+            val started = System.nanoTime()
+            suspend fun classifyLive() { var offset = 0; while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.liveBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
+                dao.updateLiveClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, liveCategoryNames[item.categoryId].orEmpty(), MediaKind.LIVE)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+            } }
+            suspend fun classifyVod() { var offset = 0; while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.vodBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
+                dao.updateVodClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, vodCategoryNames[item.categoryId].orEmpty(), MediaKind.MOVIE)); received++; if(c.isAdult)adult++; if(c.isLowQualityCinema)cinema++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+            } }
+            suspend fun classifySeries() { var offset = 0; while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.seriesBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
+                dao.updateSeriesClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, seriesCategoryNames[item.categoryId].orEmpty(), MediaKind.SERIES)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+            } }
+            classifyLive(); classifyVod(); classifySeries()
+            prefs.edit().putLong("last_classification", System.currentTimeMillis()).putInt("classification_version", ContentClassificationEngine.VERSION).apply()
+            ClassificationMetrics(received, adult, cinema, kids, brazilian, (System.nanoTime() - started) / 1_000_000L)
         }
     }
 
@@ -589,6 +633,7 @@ class DroplayRepository(context: Context) {
         const val FAST_CACHE_SCHEMA = 1
         const val CREDENTIAL_ALIAS = "active_xtream_password"
         const val DETAILS_TTL_MS = 24L * 60 * 60 * 1000
+        const val RECLASSIFY_BATCH = 500
         val syncMutex = Mutex()
     }
 }
