@@ -191,13 +191,14 @@ fun PlayerScreen(
                     player.setMediaItem(playerMediaItem(media), resumePosition)
                     player.prepare()
                     player.playWhenReady = true
-                } else if (retryPlaybackEndpoint(fromStart = status == 416)) {
-                    ghost = "Tentando outra fonte…"
-                } else if (status == 416 && !retriedFromStart) {
+                } else if ((status == 416 || error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE) && !retriedFromStart) {
                     retriedFromStart = true
-                    player.setMediaItem(playerMediaItem(media), 0L)
+                    player.setMediaItem(playerMediaItem(media.copy(url = playbackUrls[playbackUrlIndex])), 0L)
                     player.prepare()
                     player.playWhenReady = true
+                    ghost = "Reiniciando do começo…"
+                } else if (retryPlaybackEndpoint()) {
+                    ghost = "Tentando outra fonte…"
                 } else {
                     playbackError = when (status) {
                         401, 403 -> "O servidor recusou o acesso ao vídeo (HTTP $status). Atualize a biblioteca e tente novamente."
