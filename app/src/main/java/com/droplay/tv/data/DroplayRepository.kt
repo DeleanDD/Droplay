@@ -274,15 +274,15 @@ class DroplayRepository(context: Context) {
             val started = System.nanoTime()
             suspend fun classifyLive() { var offset = 0; while (true) {
                 currentCoroutineContext().ensureActive(); val batch = dao.liveBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateLiveClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, liveCategoryNames[item.categoryId].orEmpty(), MediaKind.LIVE)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+                dao.updateLiveClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, liveCategoryNames[item.categoryId].orEmpty(), MediaKind.LIVE)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
             suspend fun classifyVod() { var offset = 0; while (true) {
                 currentCoroutineContext().ensureActive(); val batch = dao.vodBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateVodClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, vodCategoryNames[item.categoryId].orEmpty(), MediaKind.MOVIE)); received++; if(c.isAdult)adult++; if(c.isLowQualityCinema)cinema++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+                dao.updateVodClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, vodCategoryNames[item.categoryId].orEmpty(), MediaKind.MOVIE)); received++; if(c.isAdult)adult++; if(c.isLowQualityCinema)cinema++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
             suspend fun classifySeries() { var offset = 0; while (true) {
                 currentCoroutineContext().ensureActive(); val batch = dao.seriesBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateSeriesClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, seriesCategoryNames[item.categoryId].orEmpty(), MediaKind.SERIES)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) }); offset += batch.size
+                dao.updateSeriesClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, seriesCategoryNames[item.categoryId].orEmpty(), MediaKind.SERIES)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
             classifyLive(); classifyVod(); classifySeries()
             prefs.edit().putLong("last_classification", System.currentTimeMillis()).putInt("classification_version", ContentClassificationEngine.VERSION).apply()
@@ -296,7 +296,11 @@ class DroplayRepository(context: Context) {
     }
 
     fun playbackMedia(source: PlaylistSource, media: MediaEntry): MediaEntry = when (source) {
-        is PlaylistSource.Xtream -> media.copy(url = XtreamUrlBuilder.forMedia(source, media))
+        is PlaylistSource.Xtream -> {
+            val generated = XtreamUrlBuilder.forMedia(source, media)
+            if (media.url.isNotBlank()) media.copy(playbackFallbackUrl = generated.takeIf { it != media.url })
+            else media.copy(url = generated)
+        }
         is PlaylistSource.M3u -> media
     }
 

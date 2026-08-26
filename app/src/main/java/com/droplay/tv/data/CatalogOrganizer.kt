@@ -30,12 +30,33 @@ object CatalogOrganizer {
     const val RECENT = "Últimos adicionados"
     const val RELEASES = "Lançamentos"
     const val FOOTBALL = "Futebol ao vivo"
+    private val legacyAdultSignals = listOf("xxx", "adulto", "adultos", "+18", "18+", "porn", "hentai", "onlyfans")
+    private val legacyCinemaSignals = listOf("hdcam", "hd cam", "camrip", "cam rip", "telesync", "hdts", "hd ts", "dvdscr", "dvd scr", "workprint")
+    private val legacyIsolatedCam = Regex("(^|\\s|\\[|\\(|\\{)cam($|\\s|\\]|\\)|\\})", RegexOption.IGNORE_CASE)
 
     fun visibleEntries(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): List<MediaEntry> =
         entries.asSequence()
             .filterNot(::isAlwaysBlocked)
             .filterNot { it.isHidden || isAdult(it) || isCinema(it) }
             .toList()
+
+    /** Índice mínimo para liberar a interface imediatamente; os índices avançados são montados depois. */
+    fun prepareInitial(entries: List<MediaEntry>): PreparedCatalog {
+        val visible = ArrayList<MediaEntry>(entries.size)
+        val movies = ArrayList<MediaEntry>()
+        val series = ArrayList<MediaEntry>()
+        val live = ArrayList<MediaEntry>()
+        entries.forEach { item ->
+            if (item.isHidden || isAdult(item) || isCinema(item) || isAlwaysBlocked(item)) return@forEach
+            visible += item
+            when (item.kind) {
+                MediaKind.MOVIE -> movies += item
+                MediaKind.SERIES -> series += item
+                MediaKind.LIVE -> live += item
+            }
+        }
+        return PreparedCatalog(entries = visible, movies = movies, series = series, live = live)
+    }
 
     fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): PreparedCatalog {
         val allowed = visibleEntries(entries, showAdult, showCinema)
@@ -86,12 +107,15 @@ object CatalogOrganizer {
 
     fun isAdult(item: MediaEntry): Boolean {
         if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isAdult
-        return ContentClassificationEngine.classify(ClassificationInput(item.name, item.group, item.kind)).isAdult
+        val text = "${item.group} ${item.name}".lowercase(Locale.ROOT)
+        return legacyAdultSignals.any(text::contains)
     }
 
     fun isCinema(item: MediaEntry): Boolean {
         if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isLowQualityCinema
-        return ContentClassificationEngine.classify(ClassificationInput(item.name, item.group, item.kind)).isLowQualityCinema
+        if (item.kind != MediaKind.MOVIE) return false
+        val text = "${item.group} ${item.name}".lowercase(Locale.ROOT)
+        return legacyCinemaSignals.any(text::contains) || legacyIsolatedCam.containsMatchIn(item.name)
     }
 
     fun isKids(item: MediaEntry): Boolean {
@@ -206,9 +230,9 @@ object CatalogOrganizer {
     }
 
     private fun isAlwaysBlocked(item: MediaEntry): Boolean {
-        val text = normalized("${item.group} ${item.name}")
+        val text = "${item.group} ${item.name}".lowercase(Locale.ROOT)
         if (text.contains("brasil paralelo") || text.contains("brasil pararelo")) return true
-        if (item.kind == MediaKind.LIVE && listOf("checklist", "voce sabia", "canais do cliente", "canal do cliente").any(text::contains)) return true
+        if (item.kind == MediaKind.LIVE && listOf("checklist", "voce sabia", "você sabia", "canais do cliente", "canal do cliente").any(text::contains)) return true
         return false
     }
 

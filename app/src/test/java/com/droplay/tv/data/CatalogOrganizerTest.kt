@@ -80,5 +80,19 @@ class CatalogOrganizerTest {
         assertEquals(listOf(south), prepared.liveSubcategoryIndex["Globo"]?.get("Globo Sul"))
     }
 
+    @Test fun initialCatalogAndNormalizedSearchStayFast() {
+        val entries = (0 until 100_000).map { index ->
+            entry("Filme Ágil $index", MediaKind.MOVIE, "Ação").copy(
+                normalizedName = "filme agil $index", normalizedCategoryName = "acao",
+                classificationVersion = ContentClassificationEngine.VERSION,
+            )
+        }
+        val started = System.nanoTime()
+        val prepared = CatalogOrganizer.prepareInitial(entries)
+        assertEquals(100_000, prepared.movies.size)
+        assertTrue(SearchNormalizer.matches(entries[42], "ÁGIL 42"))
+        assertTrue((System.nanoTime() - started) / 1_000_000L < 2_000L)
+    }
+
     private fun entry(name: String, kind: MediaKind, group: String) = MediaEntry(name, name, "https://example.test/$name", kind, group)
 }

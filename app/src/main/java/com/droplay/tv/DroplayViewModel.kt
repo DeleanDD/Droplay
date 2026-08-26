@@ -62,16 +62,19 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
             if (generation != loadGeneration) return@launch
 
             if (cached != null) {
-                _state.value = _state.value.copy(loadingMessage = "Organizando biblioteca salva…")
-                val prepared = withContext(Dispatchers.Default) {
-                    CatalogOrganizer.prepare(cached.entries, preferences.showAdultContent, preferences.showCinemaContent)
-                }
+                val initial = withContext(Dispatchers.Default) { CatalogOrganizer.prepareInitial(cached.entries) }
                 if (generation != loadGeneration) return@launch
                 _state.value = _state.value.copy(
-                    source = source, catalog = cached, preparedCatalog = prepared,
+                    source = source, catalog = cached, preparedCatalog = initial,
                     loading = false, lastRefreshMs = repository.lastRefresh(), error = null,
                     syncStates = CatalogSection.entries.associateWith { SectionSyncState(SyncPhase.UsingCache) },
                 )
+                viewModelScope.launch(Dispatchers.Default) {
+                    val prepared = CatalogOrganizer.prepare(cached.entries, preferences.showAdultContent, preferences.showCinemaContent)
+                    if (generation == loadGeneration && _state.value.source == source) {
+                        _state.value = _state.value.copy(preparedCatalog = prepared)
+                    }
+                }
                 viewModelScope.launch(Dispatchers.IO) {
                     delay(10_000)
                     runCatching { repository.ensureFastCache(source, cached.entries) }

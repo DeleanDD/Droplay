@@ -11,6 +11,9 @@ object SearchNormalizer {
 
     fun matches(item: MediaEntry, query: String): Boolean {
         val needle = normalize(query)
-        return needle.length >= 3 && (normalize(item.name).contains(needle) || normalize(item.group).contains(needle))
+        if (needle.length < 3) return false
+        val name = item.normalizedName.takeIf(String::isNotBlank) ?: normalize(item.name)
+        val category = item.normalizedCategoryName.takeIf(String::isNotBlank) ?: normalize(item.group)
+        return name.contains(needle) || category.contains(needle)
     }
 }

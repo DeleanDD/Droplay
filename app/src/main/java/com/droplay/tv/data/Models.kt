@@ -51,6 +51,7 @@ data class MediaEntry(
     val isHidden: Boolean = false,
     val classificationReason: String? = null,
     val classificationVersion: Int = 0,
+    val playbackFallbackUrl: String? = null,
 )
 
 enum class CatalogSection { LIVE, VOD, SERIES, CATEGORIES, DETAILS, EPG }

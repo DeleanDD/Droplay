@@ -99,8 +99,9 @@ class XtreamClient(source: PlaylistSource.Xtream) {
         val currentExtension = media.containerExtension ?: "mp4"
         val freshExtension = firstText(data, "container_extension")?.trimStart('.')?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) }
             ?: currentExtension
+        val directSource = firstText(data, "direct_source") ?: firstText(info, "direct_source")
         return media.copy(
-            url = "",
+            url = directSource?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }.orEmpty(),
             description = descriptionFrom(info) ?: descriptionFrom(data) ?: media.description,
             logo = firstText(info, "movie_image", "cover_big", "cover") ?: media.logo,
             backdrop = imageFrom(info, "backdrop_path") ?: media.backdrop,

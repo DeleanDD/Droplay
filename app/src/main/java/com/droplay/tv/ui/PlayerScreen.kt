@@ -78,6 +78,8 @@ fun PlayerScreen(
     val subtitleSettings = remember { SubtitleSettings(context) }
     var subtitleAppearance by remember { mutableStateOf(subtitleSettings.appearance()) }
     var activeOpenSubtitle by remember(media.id) { mutableStateOf<SubtitleCandidate?>(null) }
+    val playbackUrls = remember(media.url, media.playbackFallbackUrl) { playbackCandidates(media) }
+    var playbackUrlIndex by remember(media.id) { mutableIntStateOf(0) }
     val player = remember(media.url) {
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
@@ -118,6 +120,17 @@ fun PlayerScreen(
     val playPauseFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
     var requestedFocus by remember { mutableStateOf<ControlTarget?>(null) }
+
+    fun retryPlaybackEndpoint(fromStart: Boolean = false): Boolean {
+        val next = playbackUrls.getOrNull(playbackUrlIndex + 1) ?: return false
+        playbackUrlIndex++
+        playbackError = null
+        val resume = if (fromStart) 0L else player.currentPosition.coerceAtLeast(0)
+        player.setMediaItem(playerMediaItem(media.copy(url = next)), resume)
+        player.prepare()
+        player.playWhenReady = true
+        return true
+    }
 
     fun wake() { controls = true; interaction = System.currentTimeMillis() }
     fun seek(delta: Long) {
@@ -174,6 +187,8 @@ fun PlayerScreen(
                     player.setMediaItem(playerMediaItem(media), resumePosition)
                     player.prepare()
                     player.playWhenReady = true
+                } else if (retryPlaybackEndpoint(fromStart = status == 416)) {
+                    ghost = "Tentando outra fonte…"
                 } else if (status == 416 && !retriedFromStart) {
                     retriedFromStart = true
                     player.setMediaItem(playerMediaItem(media), 0L)
@@ -202,6 +217,13 @@ fun PlayerScreen(
             position = player.currentPosition.coerceAtLeast(0)
             duration = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0
             delay(500)
+        }
+    }
+    LaunchedEffect(buffering, playbackUrlIndex) {
+        if (!buffering) return@LaunchedEffect
+        delay(18_000)
+        if (buffering && player.playbackState == Player.STATE_BUFFERING && retryPlaybackEndpoint()) {
+            ghost = "Tentando outra fonte…"
         }
     }
     LaunchedEffect(interaction, playing) {
@@ -563,6 +585,20 @@ private fun playerMediaItem(media: MediaEntry, externalSubtitle: com.droplay.tv.
         ))
     }
     return builder.build()
+}
+
+private fun playbackCandidates(media: MediaEntry): List<String> = buildList {
+    fun addCandidate(value: String?) { value?.takeIf(String::isNotBlank)?.let { if (it !in this) add(it) } }
+    addCandidate(media.url)
+    addCandidate(media.playbackFallbackUrl)
+    listOf(media.url, media.playbackFallbackUrl).forEach { raw ->
+        val value = raw ?: return@forEach
+        val query = value.substringAfter('?', "").let { if (it.isBlank()) "" else "?$it" }
+        val path = value.substringBefore('?')
+        val slash = path.lastIndexOf('/')
+        val dot = path.lastIndexOf('.')
+        if (dot > slash) addCandidate(path.substring(0, dot) + query)
+    }
 }
 
 private fun subtitleMimeType(track: com.droplay.tv.data.SubtitleTrack): String = when {
