@@ -50,6 +50,8 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.CaptionStyleCompat
 import com.droplay.tv.data.MediaEntry
@@ -94,7 +96,9 @@ fun PlayerScreen(
             .setUserAgent("Mozilla/5.0 (Linux; Android TV) AppleWebKit/537.36 DROPLAY/1.2.12")
             .setDefaultRequestProperties(mapOf("Accept" to "*/*", "Accept-Encoding" to "identity"))
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
-        val mediaSourceFactory = DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory)
+        val defaultExtractors = DefaultExtractorsFactory()
+        val extractors = ExtractorsFactory { arrayOf(LenientMp4Extractor(), *defaultExtractors.createExtractors()) }
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractors)
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).setMediaSourceFactory(mediaSourceFactory).build().apply {
             setMediaItem(playerMediaItem(media)); prepare()
             if (resumeAt > 0) seekTo(resumeAt)
