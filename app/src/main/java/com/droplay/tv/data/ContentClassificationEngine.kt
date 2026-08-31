@@ -14,6 +14,17 @@ data class ClassificationInput(
     val country: String? = null,
     val genre: String? = null,
     val parentalRating: String? = null,
+    val categoryClassification: CategoryClassification? = null,
+)
+
+data class CategoryClassification(
+    val originalName: String,
+    val normalizedName: String,
+    val tokens: Set<String>,
+    val isAdult: Boolean,
+    val isKids: Boolean,
+    val isBrazilian: Boolean,
+    val isLowQualityCinema: Boolean,
 )
 
 data class ContentClassification(
@@ -30,7 +41,7 @@ data class ContentClassification(
 )
 
 object ContentClassificationEngine {
-    const val VERSION = 2
+    const val VERSION = 3
 
     private val explicitAdult = setOf("xxx", "porno", "porn", "pornografico", "pornografica", "hentai", "onlyfans", "playboy", "redlight")
     private val adultCategoryTokens = explicitAdult + setOf("adulto", "adultos", "adult", "erotico", "erotica", "sex", "sexy", "hot", "privacy")
@@ -50,29 +61,28 @@ object ContentClassificationEngine {
         .trim()
 
     fun classify(input: ClassificationInput): ContentClassification {
-        val rawCategory = input.categoryName.lowercase(Locale.ROOT)
         val name = normalize(input.name)
-        val category = normalize(input.categoryName)
+        val categoryInfo = input.categoryClassification ?: classifyCategory(input.categoryName, input.serverAdult)
+        val category = categoryInfo.normalizedName
         val country = normalize(input.country.orEmpty())
         val genre = normalize(input.genre.orEmpty())
         val combined = "$category $name $genre".trim()
         val nameTokens = name.splitToSequence(' ').filter(String::isNotBlank).toSet()
-        val categoryTokens = category.splitToSequence(' ').filter(String::isNotBlank).toSet()
+        val categoryTokens = categoryInfo.tokens
 
         val serverAdult = input.serverAdult
-        val adultCategory = categoryTokens.any(adultCategoryTokens::contains) || adultCategoryTokens.any { phrase -> phrase.contains(' ') && category.contains(phrase) } ||
-            rawCategory.contains("18+") || rawCategory.contains("+18") || category.contains("conteudo adulto") || category.contains("adult movies") || category.contains("adult channels")
+        val adultCategory = categoryInfo.isAdult
         val explicitByName = nameTokens.any(explicitAdult::contains) || explicitAdult.any { it.contains(' ') && name.contains(it) }
         val isAdult = serverAdult || adultCategory || explicitByName
 
-        val lowQuality = input.kind == MediaKind.MOVIE && isLowQualityRelease(name, category)
+        val lowQuality = input.kind == MediaKind.MOVIE && (categoryInfo.isLowQualityCinema || isLowQualityRelease(name, category))
         val hidden = isAdult || lowQuality
-        val kidsPositive = kidsCategorySignals.any { category.containsWordOrPhrase(it) } || kidsBrands.any { combined.contains(it) }
-        val unsafeForKids = isAdult || lowQuality || adultAnimationSignals.any { combined.contains(it) } || normalize(input.parentalRating.orEmpty()) in setOf("18", "18 anos", "r", "nc 17")
+        val kidsPositive = categoryInfo.isKids || kidsBrands.any { combined.contains(it) }
+        val unsafeForKids = isAdult || adultAnimationSignals.any { combined.contains(it) } || normalize(input.parentalRating.orEmpty()) in setOf("18", "18 anos", "r", "nc 17")
         val brazilCountry = country.splitToSequence(' ', ',', ';', '|', '/').any { it == "brasil" || it == "brazil" } || country.contains("brasil") || country.contains("brazil")
         val portugueseCountry = country.contains("portugal") && !brazilCountry
         val brDedicatedCategory = "br" in categoryTokens && listOf("filme", "filmes", "serie", "series", "novela", "novelas", "nacional").any(categoryTokens::contains)
-        val brazilCategory = !portugueseCountry && (brazilianCategories.any { category.containsWordOrPhrase(it) } || brDedicatedCategory)
+        val brazilCategory = !portugueseCountry && (categoryInfo.isBrazilian || brDedicatedCategory)
 
         val reason = when {
             serverAdult -> ClassificationReason.SERVER_ADULT
@@ -83,19 +93,26 @@ object ContentClassificationEngine {
         }
         return ContentClassification(name, category, isAdult, lowQuality,
             isKids = kidsPositive && !unsafeForKids,
-            isBrazilian = (brazilCountry || brazilCategory) && !hidden,
+            isBrazilian = (brazilCountry || brazilCategory) && !isAdult,
             isHidden = hidden, reason = reason,
             confidence = if (reason != ClassificationReason.NONE || brazilCountry || kidsPositive) ClassificationConfidence.HIGH else ClassificationConfidence.LOW)
     }
 
-    fun isBlockedCategory(name: String, serverAdult: Boolean = false): Boolean {
-        if (serverAdult) return true
-        val raw = name.lowercase(Locale.ROOT)
+    fun classifyCategory(name: String, serverAdult: Boolean = false): CategoryClassification {
         val normalized = normalize(name)
-        val tokens = normalized.splitToSequence(' ').toSet()
-        return tokens.any(adultCategoryTokens::contains) || explicitAdult.any { normalized.containsWordOrPhrase(it) } ||
-            raw.contains("18+") || raw.contains("+18") || normalized.contains("conteudo adulto") ||
-            normalized.contains("adult movies") || normalized.contains("adult channels")
+        val tokens = normalized.splitToSequence(' ').filter(String::isNotBlank).toSet()
+        val raw = name.lowercase(Locale.ROOT)
+        val adult = serverAdult || tokens.any(adultCategoryTokens::contains) || raw.contains("18+") || raw.contains("+18") ||
+            listOf("conteudo adulto", "adult movies", "adult channels").any { normalized.containsWordOrPhrase(it) }
+        val adultAnimation = adultAnimationSignals.any { normalized.containsWordOrPhrase(it) }
+        val kids = !adult && !adultAnimation && (kidsCategorySignals.any { normalized.containsWordOrPhrase(it) } || kidsBrands.any { normalized.containsWordOrPhrase(it) })
+        val brazilian = brazilianCategories.any { normalized.containsWordOrPhrase(it) } ||
+            ("br" in tokens && setOf("filme", "filmes", "serie", "series", "novela", "novelas", "nacional").any(tokens::contains))
+        return CategoryClassification(name, normalized, tokens, adult, kids, brazilian, isLowQualityRelease(normalized, normalized))
+    }
+
+    fun isBlockedCategory(name: String, serverAdult: Boolean = false): Boolean {
+        return classifyCategory(name, serverAdult).isAdult
     }
 
     private fun isLowQualityRelease(name: String, category: String): Boolean {

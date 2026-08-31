@@ -751,6 +751,9 @@ private fun CatalogScreen(
     var subtitlePassword by remember { mutableStateOf("") }
     var subtitleStatus by remember { mutableStateOf(if (storedSubtitleConfig.canDownload) "Conta conectada" else "Configuração pendente") }
     var subtitleBusy by remember { mutableStateOf(false) }
+    var requestAdultPin by remember { mutableStateOf(false) }
+    var adultPin by remember { mutableStateOf("") }
+    var adultPinError by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val topFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -801,15 +804,19 @@ private fun CatalogScreen(
         item { Surface(shape = RoundedCornerShape(16.dp), color = Surface) {
             Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Text("Proteção de conteúdo", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("A filtragem é aplicada durante a sincronização e também ao abrir catálogos antigos.", color = Muted)
+                Text("As preferências são aplicadas instantaneamente ao catálogo salvo, sem baixar a lista novamente.", color = Muted)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("Conteúdo adulto explícito", fontWeight = FontWeight.Bold); Text("Bloqueado permanentemente para evitar exposição acidental.", color = Muted, fontSize = 12.sp) }
-                    Text("PROTEGIDO", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Column(Modifier.weight(1f)) { Text("Conteúdo adulto explícito", color = Color.White, fontWeight = FontWeight.Bold); Text("Oculto por padrão. A ativação exige o PIN de segurança.", color = Muted, fontSize = 12.sp) }
+                    ModernButton(if (state.showAdultContent) "Desativar" else "Ativar com PIN", {
+                        if (state.showAdultContent) setAdultContent(false) else {
+                            adultPin = ""; adultPinError = false; requestAdultPin = true
+                        }
+                    }, primary = false)
                 }
                 HorizontalDivider(color = Color(0x22FFFFFF))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("Gravações de cinema", fontWeight = FontWeight.Bold); Text("CAM, HDCAM, telesync e equivalentes são ocultos; WEB-DL e Blu-ray permanecem visíveis.", color = Muted, fontSize = 12.sp) }
-                    Text("OCULTO", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Column(Modifier.weight(1f)) { Text("Gravações de cinema", color = Color.White, fontWeight = FontWeight.Bold); Text("CAM, HDCAM, telesync e equivalentes ficam ocultos por padrão.", color = Muted, fontSize = 12.sp) }
+                    ModernButton(if (state.showCinemaContent) "Ocultar" else "Exibir", { setCinemaContent(!state.showCinemaContent) }, primary = false)
                 }
             }
         } }
@@ -857,6 +864,22 @@ private fun CatalogScreen(
         } }
         item { Text("DROPLAY ${BuildConfig.VERSION_NAME}  •  Nenhum conteúdo é fornecido pelo aplicativo.", color = Muted, fontSize = 12.sp) }
     }
+    if (requestAdultPin) AlertDialog(
+        onDismissRequest = { requestAdultPin = false },
+        title = { Text("Conteúdo protegido") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Digite o PIN para exibir conteúdo adulto. Esse conteúdo continuará fora do menu Infantil.")
+                TvField(adultPin, { adultPin = it.take(4); adultPinError = false }, "PIN", secret = true, modifier = Modifier.fillMaxWidth())
+                if (adultPinError) Text("PIN incorreto.", color = Coral, fontSize = 12.sp)
+            }
+        },
+        confirmButton = { ModernButton("Confirmar", {
+            if (adultPin == "0000") { setAdultContent(true); requestAdultPin = false; adultPin = "" }
+            else adultPinError = true
+        }, enabled = adultPin.length == 4) },
+        dismissButton = { ModernButton("Cancelar", { requestAdultPin = false }, primary = false) },
+    )
 }
 
 private fun syncPhaseLabel(phase: SyncPhase): String = when (phase) {

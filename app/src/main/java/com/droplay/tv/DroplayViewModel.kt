@@ -62,7 +62,7 @@ class DroplayViewModel(application: Application) : AndroidViewModel(application)
             if (generation != loadGeneration) return@launch
 
             if (cached != null) {
-                val initial = withContext(Dispatchers.Default) { CatalogOrganizer.prepareInitial(cached.entries) }
+                val initial = withContext(Dispatchers.Default) { CatalogOrganizer.prepareInitial(cached.entries, preferences.showAdultContent, preferences.showCinemaContent) }
                 if (generation != loadGeneration) return@launch
                 _state.value = _state.value.copy(
                     source = source, catalog = cached, preparedCatalog = initial,

@@ -37,17 +37,19 @@ object CatalogOrganizer {
     fun visibleEntries(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): List<MediaEntry> =
         entries.asSequence()
             .filterNot(::isAlwaysBlocked)
-            .filterNot { it.isHidden || isAdult(it) || isCinema(it) }
+            .filterNot { it.isHidden && !isAdult(it) && !isCinema(it) }
+            .filter { showAdult || !isAdult(it) }
+            .filter { showCinema || !isCinema(it) }
             .toList()
 
     /** Índice mínimo para liberar a interface imediatamente; os índices avançados são montados depois. */
-    fun prepareInitial(entries: List<MediaEntry>): PreparedCatalog {
+    fun prepareInitial(entries: List<MediaEntry>, showAdult: Boolean = false, showCinema: Boolean = false): PreparedCatalog {
         val visible = ArrayList<MediaEntry>(entries.size)
         val movies = ArrayList<MediaEntry>()
         val series = ArrayList<MediaEntry>()
         val live = ArrayList<MediaEntry>()
         entries.forEach { item ->
-            if (item.isHidden || isAdult(item) || isCinema(item) || isAlwaysBlocked(item)) return@forEach
+            if (isAlwaysBlocked(item) || (item.isHidden && !isAdult(item) && !isCinema(item)) || (!showAdult && isAdult(item)) || (!showCinema && isCinema(item))) return@forEach
             visible += item
             when (item.kind) {
                 MediaKind.MOVIE -> movies += item
@@ -119,7 +121,7 @@ object CatalogOrganizer {
     }
 
     fun isKids(item: MediaEntry): Boolean {
-        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isKids && !item.isHidden
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isKids && !item.isAdult
         val group = normalized(item.group)
         val name = normalized(item.name)
         val categorySignals = listOf("infantil", "kids", "crianca", "desenho", "cartoon", "baby", "junior", "nick jr", "disney jr", "discovery kids", "gloob", "boomerang", "toon")
@@ -133,7 +135,7 @@ object CatalogOrganizer {
     }
 
     fun isNational(item: MediaEntry): Boolean {
-        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isBrazilian && !item.isHidden
+        if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isBrazilian
         if (item.kind == MediaKind.LIVE) return false
         val text = normalized("${item.group} ${item.name}")
         val brazilianNovela = text.contains("novela") && listOf("turca", "mexic", "corean", "doramas").none(text::contains)

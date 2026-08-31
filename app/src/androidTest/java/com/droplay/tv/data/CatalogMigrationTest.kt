@@ -28,5 +28,27 @@ class CatalogMigrationTest {
         ApplicationProvider.getApplicationContext<Context>().deleteDatabase(DB)
     }
 
-    private companion object { const val DB = "classification-migration-test" }
+    @Test fun migrationFrom2AddsCategoryFlagsWithoutLosingCatalog() {
+        helper.createDatabase(DB_V2, 2).apply {
+            execSQL("INSERT INTO live_categories(playlistId,categoryId,name,syncVersion,normalizedName,isBlocked,classificationVersion) VALUES('p','10','Infantil',1,'infantil',0,2)")
+            execSQL("INSERT INTO favorites(playlistId,mediaId,createdAt) VALUES('p','live:1',10)")
+            close()
+        }
+        helper.runMigrationsAndValidate(DB_V2, 3, true, CatalogDatabase.MIGRATION_2_3).use { db ->
+            db.query("SELECT name,presentationOrder,isAdult,isKids FROM live_categories WHERE playlistId='p' AND categoryId='10'").use {
+                it.moveToFirst()
+                assertEquals("Infantil", it.getString(0))
+                assertEquals(0, it.getInt(1))
+                assertEquals(0, it.getInt(2))
+                assertEquals(0, it.getInt(3))
+            }
+            db.query("SELECT COUNT(*) FROM favorites WHERE playlistId='p' AND mediaId='live:1'").use { it.moveToFirst(); assertEquals(1, it.getInt(0)) }
+        }
+        ApplicationProvider.getApplicationContext<Context>().deleteDatabase(DB_V2)
+    }
+
+    private companion object {
+        const val DB = "classification-migration-test"
+        const val DB_V2 = "category-migration-test"
+    }
 }

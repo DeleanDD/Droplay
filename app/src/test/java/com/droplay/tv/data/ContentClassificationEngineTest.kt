@@ -39,7 +39,9 @@ class ContentClassificationEngineTest {
         assertTrue(classify("Aventura", "Filmes Infantis").isKids)
         assertFalse(classify("Family Guy", "Desenhos").isKids)
         assertFalse(classify("Animação adulta", "Animação", genre = "adult swim").isKids)
-        assertFalse(classify("Aventura HDCAM", "Filmes Infantis").isKids)
+        val kidsCam = classify("Aventura HDCAM", "Filmes Infantis")
+        assertTrue(kidsCam.isKids)
+        assertTrue(kidsCam.isLowQualityCinema)
         assertFalse(classify("XXX Brasil", "Infantil Nacional", country = "Brasil").isKids)
         assertFalse(classify("XXX Brasil", "Infantil Nacional", country = "Brasil").isBrazilian)
         val both = classify("Turma", "Filmes Infantis Nacionais", country = "Brasil")
@@ -50,6 +52,15 @@ class ContentClassificationEngineTest {
         val value = classify("[BR] Filme_Infantil - 1080p", "Kids")
         assertEquals("br filme infantil 1080p", value.normalizedName)
         assertEquals(ContentClassificationEngine.VERSION, value.version)
+    }
+
+    @Test fun preclassifiesCategoryOnceAndReusesItsFlags() {
+        val category = ContentClassificationEngine.classifyCategory("Filmes Infantis Nacionais")
+        assertTrue(category.isKids)
+        assertTrue(category.isBrazilian)
+        val item = ContentClassificationEngine.classify(ClassificationInput("Aventura", category.originalName, MediaKind.MOVIE, categoryClassification = category))
+        assertTrue(item.isKids)
+        assertTrue(item.isBrazilian)
     }
 
     @Test fun classifiesLargeCatalogInSinglePass() {

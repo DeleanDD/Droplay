@@ -8,18 +8,18 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Entity(tableName = "playlist_accounts", indices = [Index(value = ["sourceKey"], unique = true)])
 data class PlaylistAccountEntity(@PrimaryKey val playlistId: String, val sourceKey: String, val baseUrl: String, val username: String, val credentialAlias: String, val createdAt: Long)
 
-@Entity(tableName = "live_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"])])
-data class LiveCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long)
-@Entity(tableName = "vod_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"])])
-data class VodCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long)
-@Entity(tableName = "series_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"])])
-data class SeriesCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long)
+@Entity(tableName = "live_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "presentationOrder"])])
+data class LiveCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long, val presentationOrder: Int = 0, val isAdult: Boolean = false, val isLowQualityCinema: Boolean = false, val isKids: Boolean = false, val isBrazilian: Boolean = false, val isHidden: Boolean = false, val classificationReason: String? = null)
+@Entity(tableName = "vod_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "presentationOrder"])])
+data class VodCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long, val presentationOrder: Int = 0, val isAdult: Boolean = false, val isLowQualityCinema: Boolean = false, val isKids: Boolean = false, val isBrazilian: Boolean = false, val isHidden: Boolean = false, val classificationReason: String? = null)
+@Entity(tableName = "series_categories", primaryKeys = ["playlistId", "categoryId"], indices = [Index("playlistId"), Index(value = ["playlistId", "name"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "presentationOrder"])])
+data class SeriesCategoryEntity(val playlistId: String, val categoryId: String, val name: String, val normalizedName: String, val isBlocked: Boolean, val classificationVersion: Int, val syncVersion: Long, val presentationOrder: Int = 0, val isAdult: Boolean = false, val isLowQualityCinema: Boolean = false, val isKids: Boolean = false, val isBrazilian: Boolean = false, val isHidden: Boolean = false, val classificationReason: String? = null)
 
-@Entity(tableName = "live_streams", primaryKeys = ["playlistId", "streamId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"])])
+@Entity(tableName = "live_streams", primaryKeys = ["playlistId", "streamId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"]), Index(value = ["playlistId", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isKids", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isBrazilian", "isAdult", "isLowQualityCinema"])])
 data class LiveStreamEntity(val playlistId: String, val streamId: String, val categoryId: String, val name: String, val normalizedName: String, val normalizedCategoryName: String, val icon: String?, val epgId: String?, val addedAt: Long, val extension: String, val isAdult: Boolean, val isLowQualityCinema: Boolean, val isKids: Boolean, val isBrazilian: Boolean, val isHidden: Boolean, val classificationReason: String?, val classificationVersion: Int, val syncVersion: Long)
-@Entity(tableName = "vod_streams", primaryKeys = ["playlistId", "streamId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"])])
+@Entity(tableName = "vod_streams", primaryKeys = ["playlistId", "streamId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"]), Index(value = ["playlistId", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isKids", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isBrazilian", "isAdult", "isLowQualityCinema"])])
 data class VodStreamEntity(val playlistId: String, val streamId: String, val categoryId: String, val name: String, val normalizedName: String, val normalizedCategoryName: String, val icon: String?, val addedAt: Long, val extension: String, val year: Int?, val rating: Double?, val description: String?, val durationMs: Long, val isAdult: Boolean, val isLowQualityCinema: Boolean, val isKids: Boolean, val isBrazilian: Boolean, val isHidden: Boolean, val classificationReason: String?, val classificationVersion: Int, val syncVersion: Long)
-@Entity(tableName = "series", primaryKeys = ["playlistId", "seriesId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"])])
+@Entity(tableName = "series", primaryKeys = ["playlistId", "seriesId"], indices = [Index(value = ["playlistId", "categoryId"]), Index(value = ["playlistId", "normalizedName"]), Index(value = ["playlistId", "addedAt"]), Index(value = ["playlistId", "isHidden"]), Index(value = ["playlistId", "isKids", "isHidden"]), Index(value = ["playlistId", "isBrazilian", "isHidden"]), Index(value = ["playlistId", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isKids", "isAdult", "isLowQualityCinema"]), Index(value = ["playlistId", "isBrazilian", "isAdult", "isLowQualityCinema"])])
 data class SeriesEntity(val playlistId: String, val seriesId: String, val categoryId: String, val name: String, val normalizedName: String, val normalizedCategoryName: String, val cover: String?, val backdrop: String?, val addedAt: Long, val year: Int?, val rating: Double?, val description: String?, val isAdult: Boolean, val isLowQualityCinema: Boolean, val isKids: Boolean, val isBrazilian: Boolean, val isHidden: Boolean, val classificationReason: String?, val classificationVersion: Int, val syncVersion: Long)
 @Entity(tableName = "episodes", primaryKeys = ["playlistId", "episodeId"], indices = [Index(value = ["playlistId", "seriesId"]), Index(value = ["playlistId", "seriesId", "season", "episode"])])
 data class EpisodeEntity(val playlistId: String, val episodeId: String, val seriesId: String, val name: String, val season: Int?, val episode: Int?, val extension: String, val icon: String?, val durationMs: Long, val cachedAt: Long)
@@ -38,12 +38,12 @@ interface CatalogDao {
     @Query("SELECT COUNT(*) FROM live_streams WHERE playlistId=:playlistId") suspend fun liveCount(playlistId: String): Int
     @Query("SELECT COUNT(*) FROM vod_streams WHERE playlistId=:playlistId") suspend fun vodCount(playlistId: String): Int
     @Query("SELECT COUNT(*) FROM series WHERE playlistId=:playlistId") suspend fun seriesCount(playlistId: String): Int
-    @Query("SELECT * FROM live_categories WHERE playlistId=:playlistId") suspend fun liveCategories(playlistId: String): List<LiveCategoryEntity>
-    @Query("SELECT * FROM vod_categories WHERE playlistId=:playlistId") suspend fun vodCategories(playlistId: String): List<VodCategoryEntity>
-    @Query("SELECT * FROM series_categories WHERE playlistId=:playlistId") suspend fun seriesCategories(playlistId: String): List<SeriesCategoryEntity>
-    @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId AND isHidden=0") suspend fun live(playlistId: String): List<LiveStreamEntity>
-    @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId AND isHidden=0") suspend fun vod(playlistId: String): List<VodStreamEntity>
-    @Query("SELECT * FROM series WHERE playlistId=:playlistId AND isHidden=0") suspend fun series(playlistId: String): List<SeriesEntity>
+    @Query("SELECT * FROM live_categories WHERE playlistId=:playlistId ORDER BY presentationOrder") suspend fun liveCategories(playlistId: String): List<LiveCategoryEntity>
+    @Query("SELECT * FROM vod_categories WHERE playlistId=:playlistId ORDER BY presentationOrder") suspend fun vodCategories(playlistId: String): List<VodCategoryEntity>
+    @Query("SELECT * FROM series_categories WHERE playlistId=:playlistId ORDER BY presentationOrder") suspend fun seriesCategories(playlistId: String): List<SeriesCategoryEntity>
+    @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId") suspend fun live(playlistId: String): List<LiveStreamEntity>
+    @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId") suspend fun vod(playlistId: String): List<VodStreamEntity>
+    @Query("SELECT * FROM series WHERE playlistId=:playlistId") suspend fun series(playlistId: String): List<SeriesEntity>
     @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId ORDER BY streamId LIMIT :limit OFFSET :offset") suspend fun liveBatch(playlistId: String, limit: Int, offset: Int): List<LiveStreamEntity>
     @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId ORDER BY streamId LIMIT :limit OFFSET :offset") suspend fun vodBatch(playlistId: String, limit: Int, offset: Int): List<VodStreamEntity>
     @Query("SELECT * FROM series WHERE playlistId=:playlistId ORDER BY seriesId LIMIT :limit OFFSET :offset") suspend fun seriesBatch(playlistId: String, limit: Int, offset: Int): List<SeriesEntity>
@@ -98,13 +98,13 @@ interface CatalogDao {
     }
 }
 
-@Database(entities = [PlaylistAccountEntity::class, LiveCategoryEntity::class, VodCategoryEntity::class, SeriesCategoryEntity::class, LiveStreamEntity::class, VodStreamEntity::class, SeriesEntity::class, EpisodeEntity::class, MediaDetailEntity::class, SyncMetadataEntity::class, FavoriteEntity::class, WatchProgressEntity::class], version = 2, exportSchema = true)
+@Database(entities = [PlaylistAccountEntity::class, LiveCategoryEntity::class, VodCategoryEntity::class, SeriesCategoryEntity::class, LiveStreamEntity::class, VodStreamEntity::class, SeriesEntity::class, EpisodeEntity::class, MediaDetailEntity::class, SyncMetadataEntity::class, FavoriteEntity::class, WatchProgressEntity::class], version = 3, exportSchema = true)
 abstract class CatalogDatabase : RoomDatabase() {
     abstract fun catalogDao(): CatalogDao
     companion object {
         @Volatile private var instance: CatalogDatabase? = null
         fun get(context: Context): CatalogDatabase = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, CatalogDatabase::class.java, "droplay-catalog.db").addMigrations(MIGRATION_1_2).build().also { instance = it }
+            instance ?: Room.databaseBuilder(context.applicationContext, CatalogDatabase::class.java, "droplay-catalog.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -125,6 +125,26 @@ abstract class CatalogDatabase : RoomDatabase() {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isHidden ON $table (playlistId, isHidden)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isKids_isHidden ON $table (playlistId, isKids, isHidden)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isBrazilian_isHidden ON $table (playlistId, isBrazilian, isHidden)")
+                }
+            }
+        }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf("live_categories", "vod_categories", "series_categories").forEach { table ->
+                    db.execSQL("ALTER TABLE $table ADD COLUMN presentationOrder INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN isAdult INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN isLowQualityCinema INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN isKids INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN isBrazilian INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN isHidden INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN classificationReason TEXT")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_normalizedName ON $table (playlistId, normalizedName)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_presentationOrder ON $table (playlistId, presentationOrder)")
+                }
+                listOf("live_streams", "vod_streams", "series").forEach { table ->
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isAdult_isLowQualityCinema ON $table (playlistId, isAdult, isLowQualityCinema)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isKids_isAdult_isLowQualityCinema ON $table (playlistId, isKids, isAdult, isLowQualityCinema)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_${table}_playlistId_isBrazilian_isAdult_isLowQualityCinema ON $table (playlistId, isBrazilian, isAdult, isLowQualityCinema)")
                 }
             }
         }

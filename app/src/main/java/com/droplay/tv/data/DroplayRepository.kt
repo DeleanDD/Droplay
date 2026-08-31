@@ -198,15 +198,17 @@ class DroplayRepository(context: Context) {
         val version = System.currentTimeMillis()
         val now = System.currentTimeMillis()
         val meta = SyncMetadataEntity(playlistId, batch.kind.name, now, now, null, version, batch.entries.size, null, null, SyncPhase.Success.name)
+        fun category(id: String, name: String) = batch.categoryClassifications[id]
+            ?: ContentClassificationEngine.classifyCategory(name)
         when (batch.kind) {
             MediaKind.LIVE -> dao.replaceLive(playlistId,
-                batch.categories.map { LiveCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.categories.entries.mapIndexed { order, item -> val c = category(item.key, item.value); LiveCategoryEntity(playlistId, item.key, item.value, c.normalizedName, false, ContentClassificationEngine.VERSION, version, order, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isAdult || c.isLowQualityCinema, categoryReason(c)) },
                 batch.entries.map { item -> val c = item.classification(); LiveStreamEntity(playlistId, item.streamId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.epgId, item.addedAt, item.containerExtension ?: "ts", c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
             MediaKind.MOVIE -> dao.replaceVod(playlistId,
-                batch.categories.map { VodCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.categories.entries.mapIndexed { order, item -> val c = category(item.key, item.value); VodCategoryEntity(playlistId, item.key, item.value, c.normalizedName, false, ContentClassificationEngine.VERSION, version, order, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isAdult || c.isLowQualityCinema, categoryReason(c)) },
                 batch.entries.map { item -> val c = item.classification(); VodStreamEntity(playlistId, item.streamId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.addedAt, item.containerExtension ?: "mp4", item.year, item.rating, item.description, item.durationMs, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
             MediaKind.SERIES -> dao.replaceSeries(playlistId,
-                batch.categories.map { SeriesCategoryEntity(playlistId, it.key, it.value, ContentClassificationEngine.normalize(it.value), false, ContentClassificationEngine.VERSION, version) },
+                batch.categories.entries.mapIndexed { order, item -> val c = category(item.key, item.value); SeriesCategoryEntity(playlistId, item.key, item.value, c.normalizedName, false, ContentClassificationEngine.VERSION, version, order, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isAdult || c.isLowQualityCinema, categoryReason(c)) },
                 batch.entries.map { item -> val c = item.classification(); SeriesEntity(playlistId, item.seriesId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.backdrop, item.addedAt, item.year, item.rating, item.description, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
         }
         prefs.edit().putBoolean("room_catalog_ready", true).apply()
@@ -219,6 +221,12 @@ class DroplayRepository(context: Context) {
             .put("kids", metrics.kids).put("brazilian", metrics.brazilian).put("networkAndParsingMs", metrics.networkAndParsingMs)
             .put("classificationMs", metrics.classificationMs).put("persistenceMs", metrics.persistenceMs)
             .put("approximateMemoryBytes", metrics.approximateMemoryBytes).toString()).apply()
+    }
+
+    private fun categoryReason(value: CategoryClassification): String? = when {
+        value.isAdult -> ClassificationReason.ADULT_CATEGORY.name
+        value.isLowQualityCinema -> ClassificationReason.LOW_QUALITY_CINEMA.name
+        else -> null
     }
 
     private suspend fun readDatabaseCatalog(source: PlaylistSource.Xtream): Catalog? {

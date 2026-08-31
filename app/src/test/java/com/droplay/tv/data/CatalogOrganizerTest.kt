@@ -24,6 +24,24 @@ class CatalogOrganizerTest {
         assertEquals("Lançamentos", CatalogOrganizer.cleanCategory("❖ Lancamentos²", MediaKind.MOVIE))
     }
 
+    @Test fun preferencesRevealProtectedContentWithoutPuttingAdultInKids() {
+        fun classified(name: String, group: String): MediaEntry {
+            val flags = ContentClassificationEngine.classify(ClassificationInput(name, group, MediaKind.MOVIE))
+            return entry(name, MediaKind.MOVIE, group).copy(
+                isAdult = flags.isAdult, isLowQualityCinema = flags.isLowQualityCinema,
+                isKids = flags.isKids, isBrazilian = flags.isBrazilian, isHidden = flags.isHidden,
+                classificationVersion = flags.version,
+            )
+        }
+        val adult = classified("Conteúdo XXX", "Filmes Infantis XXX")
+        val cam = classified("Aventura HDCAM", "Filmes Infantis")
+        assertEquals(emptyList<MediaEntry>(), CatalogOrganizer.visibleEntries(listOf(adult, cam), false, false))
+        val visible = CatalogOrganizer.visibleEntries(listOf(adult, cam), true, true)
+        assertEquals(2, visible.size)
+        assertFalse(CatalogOrganizer.isKids(adult))
+        assertTrue(CatalogOrganizer.isKids(cam))
+    }
+
     @Test fun mergesCategoriesAndDubbedSubtitledVariants() {
         assertEquals("Ação", CatalogOrganizer.cleanCategory("FILMES | Ação²", MediaKind.MOVIE))
         assertEquals("Disney Plus", CatalogOrganizer.cleanCategory("Séries Disney Plus", MediaKind.SERIES))
