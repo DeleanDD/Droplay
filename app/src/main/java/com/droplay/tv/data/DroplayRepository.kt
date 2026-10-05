@@ -16,10 +16,10 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-class DroplayRepository(context: Context) {
+class DroplayRepository(context: Context, database: CatalogDatabase = CatalogDatabase.get(context)) {
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("droplay_local", Context.MODE_PRIVATE)
-    private val dao = CatalogDatabase.get(context).catalogDao()
+    private val dao = database.catalogDao()
     private val credentialVault = CredentialVault(context)
     private val cache = AtomicFile(File(context.filesDir, "catalog-v3.jsonl"))
     private val fastCache = AtomicFile(File(context.filesDir, "catalog-v4.bin"))
@@ -64,13 +64,15 @@ class DroplayRepository(context: Context) {
 
     fun lastRefresh(): Long = prefs.getLong("last_catalog_refresh", 0L)
 
-    fun isRefreshDue(source: PlaylistSource): Boolean {
+    suspend fun isRefreshDue(source: PlaylistSource): Boolean {
+        if (source is PlaylistSource.Xtream) {
+            val metadata = dao.metadata(sourceKey(source))
+            return SyncPolicy.catalogSections.any { SyncPolicy.isDue(SyncPolicy.lastSuccess(metadata, it), it) }
+        }
         val interval = refreshInterval()
         val age = System.currentTimeMillis() - lastRefresh()
         val sourceMatches = prefs.getString("catalog_source_key", null) == sourceKey(source)
-        val sectionDue = source is PlaylistSource.Xtream && listOf(CatalogSection.LIVE, CatalogSection.VOD, CatalogSection.SERIES)
-            .any { SyncPolicy.isDue(prefs.getLong("last_sync_${it.name}", 0L), it) }
-        return !sourceMatches || interval == RefreshInterval.EVERY_LAUNCH || sectionDue || age < 0 ||
+        return !sourceMatches || interval == RefreshInterval.EVERY_LAUNCH || age < 0 ||
             (source !is PlaylistSource.Xtream && age >= interval.durationMs) ||
             (!prefs.getBoolean("room_catalog_ready", false) && !fastCache.baseFile.exists() && !cache.baseFile.exists())
     }
@@ -112,9 +114,9 @@ class DroplayRepository(context: Context) {
         refreshAll: Boolean = false,
         progress: (String) -> Unit = {},
         sectionState: (CatalogSection, SyncPhase, String?) -> Unit = { _, _, _ -> },
-        sectionCommitted: (MediaKind, List<MediaEntry>) -> Unit = { _, _ -> },
+        sectionCommitted: suspend (MediaKind, List<MediaEntry>) -> Unit = { _, _ -> },
     ): Catalog {
-        if (!force) cachedCatalog(source, requireFresh = true)?.let { return it }
+        if (!force && !isRefreshDue(source)) cached(source)?.let { return it }
 
         return try {
             val entries: List<MediaEntry>
@@ -138,31 +140,34 @@ class DroplayRepository(context: Context) {
             if (save) saveSource(source)
             if (source is PlaylistSource.M3u) prefs.edit().putString("epg_url", epgUrl).apply()
             else prefs.edit().remove("epg_url").apply()
-            val previous = if (source is PlaylistSource.Xtream) readDatabaseCatalog(source)?.entries.orEmpty()
-                else cachedCatalog(source, requireFresh = false)?.entries.orEmpty()
-            val merged = mergeCatalog(previous, entries)
+            val previous = if (source is PlaylistSource.M3u) cachedCatalog(source, requireFresh = false)?.entries.orEmpty() else emptyList()
+            val merged = if (source is PlaylistSource.Xtream) entries else mergeCatalog(previous, entries)
             if (source is PlaylistSource.M3u && previous != merged) saveCatalog(source, merged) else markCatalogChecked(source)
             Catalog(merged)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (error: Throwable) {
             if (force) throw error
             cachedCatalog(source, requireFresh = false) ?: throw error
         }
     }
 
-    private suspend fun syncXtream(source: PlaylistSource.Xtream, progress: (String) -> Unit, sectionState: (CatalogSection, SyncPhase, String?) -> Unit, refreshAll: Boolean, sectionCommitted: (MediaKind, List<MediaEntry>) -> Unit): List<MediaEntry> = syncMutex.withLock {
+    private suspend fun syncXtream(source: PlaylistSource.Xtream, progress: (String) -> Unit, sectionState: (CatalogSection, SyncPhase, String?) -> Unit, refreshAll: Boolean, sectionCommitted: suspend (MediaKind, List<MediaEntry>) -> Unit): List<MediaEntry> = syncMutex.withLock {
         val playlistId = sourceKey(source)
+        val metadata = dao.metadata(playlistId)
+        val due = SyncPolicy.catalogSections.filter {
+            refreshAll || SyncPolicy.isDue(SyncPolicy.lastSuccess(metadata, it), it)
+        }
+        if (due.isEmpty()) return@withLock readDatabaseCatalog(source)?.entries.orEmpty()
         val client = XtreamClient(source)
         progress("Validando o acesso Xtream…")
         client.validate()
         dao.upsertAccount(PlaylistAccountEntity(playlistId, playlistId, XtreamUrlBuilder.normalizeBase(source.server), source.username, CREDENTIAL_ALIAS, System.currentTimeMillis()))
         progress("Atualizando canais, filmes e séries em segundo plano…")
-        val due = listOf(CatalogSection.LIVE, CatalogSection.VOD, CatalogSection.SERIES).filter {
-            refreshAll || SyncPolicy.isDue(prefs.getLong("last_sync_${it.name}", 0L), it)
-        }
-        if (due.isEmpty()) return@withLock readDatabaseCatalog(source)?.entries.orEmpty()
         val results = supervisorScope { due.map { section -> async(Dispatchers.IO) {
             syncSection(playlistId, section, sectionState) {
                 val batch = when (section) { CatalogSection.LIVE -> client.liveBatch(); CatalogSection.VOD -> client.vodBatch(); else -> client.seriesBatch() }
+                currentCoroutineContext().ensureActive()
                 batch.also { persistBatch(playlistId, it); sectionCommitted(it.kind, it.entries) }
             }
         } }.awaitAll() }
@@ -197,7 +202,7 @@ class DroplayRepository(context: Context) {
         val persistenceStarted = System.nanoTime()
         val version = System.currentTimeMillis()
         val now = System.currentTimeMillis()
-        val meta = SyncMetadataEntity(playlistId, batch.kind.name, now, now, null, version, batch.entries.size, null, null, SyncPhase.Success.name)
+        val meta = SyncMetadataEntity(playlistId, SyncPolicy.section(batch.kind).name, now, now, null, version, batch.entries.size, null, null, SyncPhase.Success.name)
         fun category(id: String, name: String) = batch.categoryClassifications[id]
             ?: ContentClassificationEngine.classifyCategory(name)
         when (batch.kind) {
@@ -212,7 +217,6 @@ class DroplayRepository(context: Context) {
                 batch.entries.map { item -> val c = item.classification(); SeriesEntity(playlistId, item.seriesId.orEmpty(), item.categoryId.orEmpty(), item.name, c.normalizedName, c.normalizedCategoryName, item.logo, item.backdrop, item.addedAt, item.year, item.rating, item.description, c.isAdult, c.isLowQualityCinema, c.isKids, c.isBrazilian, c.isHidden, c.reason.name, c.version, version) }, meta)
         }
         prefs.edit().putBoolean("room_catalog_ready", true).apply()
-        prefs.edit().putLong("last_sync_${batch.kind.name}", now).apply()
         val runtime = Runtime.getRuntime()
         val metrics = batch.classificationMetrics.copy(persistenceMs = (System.nanoTime() - persistenceStarted) / 1_000_000L,
             approximateMemoryBytes = runtime.totalMemory() - runtime.freeMemory())
@@ -260,7 +264,8 @@ class DroplayRepository(context: Context) {
 
     suspend fun ensureRoomCache(source: PlaylistSource, entries: List<MediaEntry>) {
         if (source is PlaylistSource.Xtream) syncMutex.withLock {
-            if (readDatabaseCatalog(source) == null) {
+            val id = sourceKey(source)
+            if (dao.liveCount(id) + dao.vodCount(id) + dao.seriesCount(id) == 0) {
                 persistLegacyCatalog(source, entries)
                 migrateUserState(sourceKey(source))
                 fastCache.delete(); cache.delete()
@@ -275,22 +280,22 @@ class DroplayRepository(context: Context) {
             dao.outdatedVod(playlistId, ContentClassificationEngine.VERSION) + dao.outdatedSeries(playlistId, ContentClassificationEngine.VERSION)
         if (outdated == 0) return null
         return syncMutex.withLock {
-            val liveCategoryNames = dao.liveCategories(playlistId).associate { it.categoryId to it.name }
-            val vodCategoryNames = dao.vodCategories(playlistId).associate { it.categoryId to it.name }
-            val seriesCategoryNames = dao.seriesCategories(playlistId).associate { it.categoryId to it.name }
+            val liveCategoryNames = dao.liveCategories(playlistId).associate { it.categoryId to ContentClassificationEngine.classifyCategory(it.name, it.isAdult) }
+            val vodCategoryNames = dao.vodCategories(playlistId).associate { it.categoryId to ContentClassificationEngine.classifyCategory(it.name, it.isAdult) }
+            val seriesCategoryNames = dao.seriesCategories(playlistId).associate { it.categoryId to ContentClassificationEngine.classifyCategory(it.name, it.isAdult) }
             var adult = 0; var cinema = 0; var kids = 0; var brazilian = 0; var received = 0
             val started = System.nanoTime()
-            suspend fun classifyLive() { var offset = 0; while (true) {
-                currentCoroutineContext().ensureActive(); val batch = dao.liveBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateLiveClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, liveCategoryNames[item.categoryId].orEmpty(), MediaKind.LIVE)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
+            suspend fun classifyLive() { while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.liveBatch(playlistId, RECLASSIFY_BATCH, ContentClassificationEngine.VERSION); if (batch.isEmpty()) break
+                dao.updateLiveClassification(batch.map { item -> val category = liveCategoryNames[item.categoryId]; val c = ContentClassificationEngine.classify(ClassificationInput(item.name, category?.originalName.orEmpty(), MediaKind.LIVE, serverAdult = item.isAdult, categoryClassification = category)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
-            suspend fun classifyVod() { var offset = 0; while (true) {
-                currentCoroutineContext().ensureActive(); val batch = dao.vodBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateVodClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, vodCategoryNames[item.categoryId].orEmpty(), MediaKind.MOVIE)); received++; if(c.isAdult)adult++; if(c.isLowQualityCinema)cinema++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
+            suspend fun classifyVod() { while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.vodBatch(playlistId, RECLASSIFY_BATCH, ContentClassificationEngine.VERSION); if (batch.isEmpty()) break
+                dao.updateVodClassification(batch.map { item -> val category = vodCategoryNames[item.categoryId]; val c = ContentClassificationEngine.classify(ClassificationInput(item.name, category?.originalName.orEmpty(), MediaKind.MOVIE, serverAdult = item.isAdult, categoryClassification = category)); received++; if(c.isAdult)adult++; if(c.isLowQualityCinema)cinema++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
-            suspend fun classifySeries() { var offset = 0; while (true) {
-                currentCoroutineContext().ensureActive(); val batch = dao.seriesBatch(playlistId, RECLASSIFY_BATCH, offset); if (batch.isEmpty()) break
-                dao.updateSeriesClassification(batch.map { item -> val c = ContentClassificationEngine.classify(ClassificationInput(item.name, seriesCategoryNames[item.categoryId].orEmpty(), MediaKind.SERIES)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
+            suspend fun classifySeries() { while (true) {
+                currentCoroutineContext().ensureActive(); val batch = dao.seriesBatch(playlistId, RECLASSIFY_BATCH, ContentClassificationEngine.VERSION); if (batch.isEmpty()) break
+                dao.updateSeriesClassification(batch.map { item -> val category = seriesCategoryNames[item.categoryId]; val c = ContentClassificationEngine.classify(ClassificationInput(item.name, category?.originalName.orEmpty(), MediaKind.SERIES, serverAdult = item.isAdult, categoryClassification = category)); received++; if(c.isAdult)adult++; if(c.isKids)kids++; if(c.isBrazilian)brazilian++; item.copy(normalizedName=c.normalizedName, normalizedCategoryName=c.normalizedCategoryName, isAdult=c.isAdult, isLowQualityCinema=c.isLowQualityCinema, isKids=c.isKids, isBrazilian=c.isBrazilian, isHidden=c.isHidden, classificationReason=c.reason.name, classificationVersion=c.version) })
             } }
             classifyLive(); classifyVod(); classifySeries()
             prefs.edit().putLong("last_classification", System.currentTimeMillis()).putInt("classification_version", ContentClassificationEngine.VERSION).apply()

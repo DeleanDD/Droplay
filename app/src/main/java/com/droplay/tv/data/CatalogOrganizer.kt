@@ -27,12 +27,23 @@ data class PreparedCatalog(
 )
 
 object CatalogOrganizer {
+    private val camMarker = Regex("(^|\\s|\\[|\\(|\\{)cam($|\\s|\\]|\\)|\\})", RegexOption.IGNORE_CASE)
+    private val brazilMarker = Regex("(^|\\s|[|/-])br($|\\s|[|/-])")
+    private val subtitleMarker = Regex("(^|\\s|\\[)l(\\]|\\s|$)")
+    private val variantTag = Regex("\\[(l|d|dual)]")
+    private val variantLanguage = Regex("\\b(legendado|legendada|dublado|dublada|dual audio)\\b")
+    private val whitespace = Regex("\\s+")
+    private val categoryDecorations = Regex("[\\p{So}\\p{Co}\\uFE0F\\u200B\\u200D]")
+    private val categoryPrefix = Regex("(?i)^\\s*(filmes?|movies?|series?|séries?|canais?|tv|ao vivo|vod)\\s*[-:|•/]*\\s*")
+    private val categoryLanguageSuffix = Regex("(?i)\\s*[-:|•/]*\\s*(legendados?|dublados?)\\s*$")
+    private val categoryNumberSuffix = Regex("[²³⁴⁵⁶⁷⁸⁹]+$")
+    private val releaseYear = Regex("(?:19|20)\\d{2}")
+    private val diacritics = Regex("\\p{Mn}+")
     const val RECENT = "Últimos adicionados"
     const val RELEASES = "Lançamentos"
     const val FOOTBALL = "Futebol ao vivo"
     private val legacyAdultSignals = listOf("xxx", "adulto", "adultos", "+18", "18+", "porn", "hentai", "onlyfans")
     private val legacyCinemaSignals = listOf("hdcam", "hd cam", "camrip", "cam rip", "telesync", "hdts", "hd ts", "dvdscr", "dvd scr", "workprint")
-    private val legacyIsolatedCam = Regex("(^|\\s|\\[|\\(|\\{)cam($|\\s|\\]|\\)|\\})", RegexOption.IGNORE_CASE)
 
     fun visibleEntries(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): List<MediaEntry> =
         entries.asSequence()
@@ -60,7 +71,8 @@ object CatalogOrganizer {
         return PreparedCatalog(entries = visible, movies = movies, series = series, live = live)
     }
 
-    fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean): PreparedCatalog {
+    fun prepare(entries: List<MediaEntry>, showAdult: Boolean, showCinema: Boolean, checkCancellation: () -> Unit = {}): PreparedCatalog {
+        checkCancellation()
         val allowed = visibleEntries(entries, showAdult, showCinema)
         val subtitleByMovie = IdentityHashMap<MediaEntry, Boolean>()
         allowed.asSequence().filter { it.kind == MediaKind.MOVIE }.forEach { subtitleByMovie[it] = isSubtitled(it) }
@@ -71,6 +83,7 @@ object CatalogOrganizer {
         val selectedMovieIds = groupedMovies.values.asSequence()
             .map { items -> items.firstOrNull { subtitleByMovie[it] != true } ?: items.first() }
             .mapTo(HashSet(), MediaEntry::id)
+        checkCancellation()
         val visible = allowed.filter { it.kind != MediaKind.MOVIE || it.id in selectedMovieIds }
         val movies = visible.filter { it.kind == MediaKind.MOVIE }
         val series = visible.filter { it.kind == MediaKind.SERIES }
@@ -82,17 +95,24 @@ object CatalogOrganizer {
         val nationalNovels = national.filter(::isNovel)
         val novelIds = nationalNovels.mapTo(HashSet(), MediaEntry::id)
         val categoryByEntry = IdentityHashMap<MediaEntry, String>()
-        visible.forEach { categoryByEntry[it] = category(it) }
+        val categoryNames = HashMap<Pair<MediaKind, String>, String>()
+        visible.forEachIndexed { index, item ->
+            if (index % 256 == 0) checkCancellation()
+            categoryByEntry[item] = if (item.kind == MediaKind.LIVE) category(item)
+                else categoryNames.getOrPut(item.kind to item.group) { cleanCategory(item.group, item.kind) }
+        }
         val categoryIndex = mapOf(
             MediaKind.MOVIE to movies.groupBy { categoryByEntry[it].orEmpty() },
             MediaKind.SERIES to series.groupBy { categoryByEntry[it].orEmpty() },
             MediaKind.LIVE to live.groupBy { categoryByEntry[it].orEmpty() },
         )
         val liveSubcategoryIndex = live.groupBy { categoryByEntry[it].orEmpty() }
-            .mapValues { (_, channels) -> channels.groupBy { cleanCategory(it.group, MediaKind.LIVE) } }
+            .mapValues { (_, channels) -> channels.groupBy { categoryNames.getOrPut(it.kind to it.group) { cleanCategory(it.group, MediaKind.LIVE) } } }
         val recent = movies.sortedByDescending { it.addedAt }.let { sorted ->
             if ((sorted.firstOrNull()?.addedAt ?: 0L) > 0) sorted.take(100) else movies.asReversed().take(100)
         }
+        checkCancellation()
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
         return PreparedCatalog(
             entries = visible, movieVariants = variants, movies = movies, series = series, live = live,
             kidsMovies = kids.filter { it.kind == MediaKind.MOVIE && it.id !in cartoonIds },
@@ -103,7 +123,7 @@ object CatalogOrganizer {
             nationalNovels = nationalNovels, categoryIndex = categoryIndex, liveSubcategoryIndex = liveSubcategoryIndex,
             homeShelves = visible.filter { it.kind != MediaKind.LIVE }.groupBy { categoryByEntry[it].orEmpty() }.entries
                 .sortedByDescending { it.value.size }.take(6).map { it.key to it.value.take(24) },
-            recentMovies = recent, releaseMovies = movies.filter(::isCurrentYear), releaseSeries = series.filter(::isCurrentYear),
+            recentMovies = recent, releaseMovies = movies.filter { yearOf(it) == currentYear }, releaseSeries = series.filter { yearOf(it) == currentYear },
         )
     }
 
@@ -117,11 +137,12 @@ object CatalogOrganizer {
         if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isLowQualityCinema
         if (item.kind != MediaKind.MOVIE) return false
         val text = "${item.group} ${item.name}".lowercase(Locale.ROOT)
-        return legacyCinemaSignals.any(text::contains) || legacyIsolatedCam.containsMatchIn(item.name)
+        return legacyCinemaSignals.any(text::contains) || camMarker.containsMatchIn(item.name)
     }
 
     fun isKids(item: MediaEntry): Boolean {
         if (item.classificationVersion == ContentClassificationEngine.VERSION) return item.isKids && !item.isAdult
+        if (isAdult(item)) return false
         val group = normalized(item.group)
         val name = normalized(item.name)
         val categorySignals = listOf("infantil", "kids", "crianca", "desenho", "cartoon", "baby", "junior", "nick jr", "disney jr", "discovery kids", "gloob", "boomerang", "toon")
@@ -140,7 +161,7 @@ object CatalogOrganizer {
         val text = normalized("${item.group} ${item.name}")
         val brazilianNovela = text.contains("novela") && listOf("turca", "mexic", "corean", "doramas").none(text::contains)
         return listOf("nacional", "brasil", "brasileir", "globoplay", "sbt+", "cinema nacional", "novela brasileira").any(text::contains) ||
-            Regex("(^|\\s|[|/-])br($|\\s|[|/-])").containsMatchIn(text) || brazilianNovela
+            brazilMarker.containsMatchIn(text) || brazilianNovela
     }
 
     fun isNovel(item: MediaEntry): Boolean {
@@ -151,13 +172,13 @@ object CatalogOrganizer {
 
     fun isSubtitled(item: MediaEntry): Boolean {
         val text = normalized("${item.name} ${item.group}")
-        return Regex("(^|\\s|\\[)l(\\]|\\s|$)").containsMatchIn(text) || text.contains("legendad")
+        return subtitleMarker.containsMatchIn(text) || text.contains("legendad")
     }
 
     fun movieTitleKey(item: MediaEntry): String = normalized(item.name)
-        .replace(Regex("\\[(l|d|dual)]"), " ")
-        .replace(Regex("\\b(legendado|legendada|dublado|dublada|dual audio)\\b"), " ")
-        .replace(Regex("\\s+"), " ")
+        .replace(variantTag, " ")
+        .replace(variantLanguage, " ")
+        .replace(whitespace, " ")
         .trim()
 
     fun movieVariantKey(item: MediaEntry): String = "${movieTitleKey(item)}:${yearOf(item) ?: 0}"
@@ -182,12 +203,18 @@ object CatalogOrganizer {
         else -> cleanCategory(item.group, item.kind)
     }
 
-    fun sort(entries: List<MediaEntry>, order: ContentSort, playCounts: Map<String, Int>): List<MediaEntry> = when (order) {
-        ContentSort.YEAR_DESC -> entries.sortedWith(compareByDescending<MediaEntry> { yearOf(it) ?: 0 }
-            .thenByDescending { it.addedAt }.thenBy { normalized(it.name) })
-        ContentSort.ALPHABETICAL -> entries.sortedBy { normalized(it.name) }
-        ContentSort.MOST_WATCHED -> entries.sortedWith(compareByDescending<MediaEntry> { playCounts[it.id] ?: 0 }
-            .thenByDescending { it.addedAt }.thenBy { normalized(it.name) })
+    private data class SortKey(val item: MediaEntry, val name: String, val year: Int, val plays: Int)
+
+    fun sort(entries: List<MediaEntry>, order: ContentSort, playCounts: Map<String, Int>): List<MediaEntry> {
+        // Comparators must not normalize names or run regexes O(n log n) times.
+        val keys = entries.map { SortKey(it, it.normalizedName.ifBlank { normalized(it.name) },
+            if (order == ContentSort.YEAR_DESC) yearOf(it) ?: 0 else 0, playCounts[it.id] ?: 0) }
+        val comparator = when (order) {
+            ContentSort.YEAR_DESC -> compareByDescending<SortKey> { it.year }.thenByDescending { it.item.addedAt }.thenBy { it.name }
+            ContentSort.ALPHABETICAL -> compareBy<SortKey> { it.name }
+            ContentSort.MOST_WATCHED -> compareByDescending<SortKey> { it.plays }.thenByDescending { it.item.addedAt }.thenBy { it.name }
+        }
+        return keys.sortedWith(comparator).map { it.item }
     }
 
     fun yearOf(item: MediaEntry): Int? = item.year ?: yearFrom("${item.name} ${item.group}")
@@ -195,10 +222,10 @@ object CatalogOrganizer {
     fun isCurrentYear(item: MediaEntry): Boolean = yearOf(item) == Calendar.getInstance().get(Calendar.YEAR)
 
     fun cleanCategory(value: String, kind: MediaKind): String {
-        var clean = value.replace(Regex("[\\p{So}\\p{Co}\\uFE0F\\u200B\\u200D]"), " ").trim()
-            .replace(Regex("(?i)^\\s*(filmes?|movies?|series?|séries?|canais?|tv|ao vivo|vod)\\s*[-:|•/]*\\s*"), "")
-            .replace(Regex("(?i)\\s*[-:|•/]*\\s*(legendados?|dublados?)\\s*$"), "")
-            .replace(Regex("[²³⁴⁵⁶⁷⁸⁹]+$"), "")
+        var clean = value.replace(categoryDecorations, " ").trim()
+            .replace(categoryPrefix, "")
+            .replace(categoryLanguageSuffix, "")
+            .replace(categoryNumberSuffix, "")
             .trim(' ', '-', ':', '|', '•', '/')
         if (clean.isBlank()) clean = when (kind) {
             MediaKind.LIVE -> "Outros canais"
@@ -239,7 +266,7 @@ object CatalogOrganizer {
     }
 
     private fun canonicalCategory(value: String): String {
-        val key = normalized(value).replace(Regex("\\s+"), " ").trim()
+        val key = normalized(value).replace(whitespace, " ").trim()
         return when {
         key == "acao" -> "Ação"
         key in setOf("ficcao", "ficcao cientifica") -> "Ficção científica"
@@ -258,9 +285,9 @@ object CatalogOrganizer {
         }
     }
 
-    private fun yearFrom(value: String): Int? = Regex("(?:19|20)\\d{2}").findAll(value).lastOrNull()?.value?.toIntOrNull()
+    private fun yearFrom(value: String): Int? = releaseYear.findAll(value).lastOrNull()?.value?.toIntOrNull()
 
     private fun normalized(value: String): String = Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
+        .replace(diacritics, "")
         .replace('²', '2')
 }

@@ -64,6 +64,7 @@ class CatalogOrganizerTest {
     }
 
     @Test fun classifiesKidsNationalAndLiveCategories() {
+        assertFalse(CatalogOrganizer.isKids(entry("XXX", MediaKind.MOVIE, "Filmes infantis")))
         assertTrue(CatalogOrganizer.isKids(entry("Discovery Kids", MediaKind.LIVE, "Canais infantis")))
         assertFalse(CatalogOrganizer.isKids(entry("Sugar Baby", MediaKind.MOVIE, "Filmes romance")))
         assertTrue(CatalogOrganizer.isKids(entry("BabyTV", MediaKind.LIVE, "Canais variados")))

@@ -13,8 +13,8 @@ android {
         applicationId = "com.droplay.tv"
         minSdk = 23
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.2.23"
+        versionCode = 27
+        versionName = "1.2.24"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -55,6 +55,7 @@ android {
     }
 
     packaging.resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
@@ -86,5 +87,9 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.room:room-testing:2.7.1")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

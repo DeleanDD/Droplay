@@ -44,9 +44,9 @@ interface CatalogDao {
     @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId") suspend fun live(playlistId: String): List<LiveStreamEntity>
     @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId") suspend fun vod(playlistId: String): List<VodStreamEntity>
     @Query("SELECT * FROM series WHERE playlistId=:playlistId") suspend fun series(playlistId: String): List<SeriesEntity>
-    @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId ORDER BY streamId LIMIT :limit OFFSET :offset") suspend fun liveBatch(playlistId: String, limit: Int, offset: Int): List<LiveStreamEntity>
-    @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId ORDER BY streamId LIMIT :limit OFFSET :offset") suspend fun vodBatch(playlistId: String, limit: Int, offset: Int): List<VodStreamEntity>
-    @Query("SELECT * FROM series WHERE playlistId=:playlistId ORDER BY seriesId LIMIT :limit OFFSET :offset") suspend fun seriesBatch(playlistId: String, limit: Int, offset: Int): List<SeriesEntity>
+    @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId AND classificationVersion < :version ORDER BY streamId LIMIT :limit") suspend fun liveBatch(playlistId: String, limit: Int, version: Int): List<LiveStreamEntity>
+    @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId AND classificationVersion < :version ORDER BY streamId LIMIT :limit") suspend fun vodBatch(playlistId: String, limit: Int, version: Int): List<VodStreamEntity>
+    @Query("SELECT * FROM series WHERE playlistId=:playlistId AND classificationVersion < :version ORDER BY seriesId LIMIT :limit") suspend fun seriesBatch(playlistId: String, limit: Int, version: Int): List<SeriesEntity>
     @Query("SELECT * FROM live_streams WHERE playlistId=:playlistId AND isHidden=0 AND normalizedName LIKE '%' || :query || '%' LIMIT :limit OFFSET :offset") suspend fun searchLive(playlistId: String, query: String, limit: Int, offset: Int): List<LiveStreamEntity>
     @Query("SELECT * FROM vod_streams WHERE playlistId=:playlistId AND isHidden=0 AND normalizedName LIKE '%' || :query || '%' LIMIT :limit OFFSET :offset") suspend fun searchVod(playlistId: String, query: String, limit: Int, offset: Int): List<VodStreamEntity>
     @Query("SELECT * FROM series WHERE playlistId=:playlistId AND isHidden=0 AND normalizedName LIKE '%' || :query || '%' LIMIT :limit OFFSET :offset") suspend fun searchSeries(playlistId: String, query: String, limit: Int, offset: Int): List<SeriesEntity>

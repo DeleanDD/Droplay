@@ -54,10 +54,12 @@ import com.droplay.tv.subtitles.SubtitleRepository
 import com.droplay.tv.subtitles.friendlySubtitleError
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Section(val title: String, val glyph: String) {
+internal enum class Section(val title: String, val glyph: String) {
     SEARCH("Buscar", "⌕"), HOME("Início", "⌂"), KIDS("Infantil", "★"), MOVIES("Filmes", "▶"),
     SERIES("Séries", "▤"), LIVE("Ao vivo", "●"), NATIONAL("Nacional", "◆"),
     FAVORITES("Favoritos", "♥"), SETTINGS("Configurações", "⚙")
@@ -400,7 +402,7 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun CategoryContent(
+@Composable internal fun CategoryContent(
     section: Section, state: AppState, query: String, onQuery: (String) -> Unit,
     category: String?, onCategory: (String?) -> Unit, open: (MediaEntry) -> Unit, favorite: (String) -> Unit,
 ) {
@@ -424,17 +426,14 @@ private fun CatalogScreen(
         } else {
             searchRunning = true
             delay(280)
-            val needle = query.trim()
             searchResults = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                catalog.asSequence()
-                    .filter { SearchNormalizer.matches(it, needle) }
-                    .take(240)
-                    .toList()
+                val context = currentCoroutineContext()
+                SearchNormalizer.search(catalog, query) { context.ensureActive() }
             }
             searchRunning = false
         }
     }
-    val all = remember(section, catalog, state.favorites, searchResults) {
+    val all = remember(section, prepared, state.favorites, searchResults) {
         when (section) {
             Section.LIVE -> prepared.live
             Section.MOVIES -> prepared.movies
@@ -444,7 +443,7 @@ private fun CatalogScreen(
             else -> emptyList()
         }
     }
-    val categories = remember(section, all) { when (section) {
+    val categories = remember(section, prepared) { when (section) {
         Section.MOVIES -> listOf(CatalogOrganizer.RECENT, "Lançamentos ${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)}") +
             prepared.categoryIndex[MediaKind.MOVIE].orEmpty().keys.sorted() + "Todos"
         Section.SERIES -> listOf(CatalogOrganizer.RELEASES) +
@@ -467,7 +466,8 @@ private fun CatalogScreen(
             prepared.liveSubcategoryIndex[activeCategory].orEmpty().keys.sorted()
         } else emptyList()
     }
-    val selectedItems = remember(section, activeCategory, liveSubcategory, all) { when {
+    val selectedItems = remember(section, activeCategory, liveSubcategory, all, prepared, state.favorites) { when {
+        section == Section.SEARCH -> searchResults
         activeCategory == null || activeCategory == "Todos" -> all
         section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT -> prepared.recentMovies
         section == Section.MOVIES && activeCategory.startsWith("Lançamentos ") -> prepared.releaseMovies
@@ -482,7 +482,15 @@ private fun CatalogScreen(
         section == Section.LIVE -> prepared.categoryIndex[MediaKind.LIVE]?.get(activeCategory).orEmpty()
         else -> emptyList()
     } }
-    val visible = remember(selectedItems, state.contentSort, state.playCounts) { CatalogOrganizer.sort(selectedItems, state.contentSort, state.playCounts) }
+    // Searching and "recently added" already have meaningful ordering.
+    val preserveOrder = section == Section.SEARCH || (section == Section.MOVIES && activeCategory == CatalogOrganizer.RECENT)
+    var sortedItems by remember(selectedItems) { mutableStateOf(selectedItems.take(120)) }
+    LaunchedEffect(selectedItems, state.contentSort, state.playCounts, preserveOrder) {
+        if (!preserveOrder) sortedItems = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            CatalogOrganizer.sort(selectedItems, state.contentSort, state.playCounts)
+        }
+    }
+    val visible = if (preserveOrder) selectedItems else sortedItems
     Column(Modifier.fillMaxSize().padding(top = 26.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(section.title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black); Text("${visible.size} títulos", color = Muted) }
@@ -853,6 +861,10 @@ private fun CatalogScreen(
                             Text("$label: ${syncPhaseLabel(sync?.phase ?: SyncPhase.Idle)}", color = if (sync?.phase == SyncPhase.Error) Coral else Muted, fontSize = 11.sp)
                         }
                     }
+                }
+                state.error?.let { Text(it, color = Coral, fontSize = 12.sp) }
+                state.syncStates.values.mapNotNull { it.message }.distinct().forEach {
+                    Text(it, color = Coral, fontSize = 12.sp)
                 }
             }
         } }

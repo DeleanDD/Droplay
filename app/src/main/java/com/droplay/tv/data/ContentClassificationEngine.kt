@@ -41,6 +41,12 @@ data class ContentClassification(
 )
 
 object ContentClassificationEngine {
+    private val releaseContext = Regex("\\b(19|20)\\d{2}\\b|\\b(720p|1080p|2160p|4k|h264|x264|h265|x265|hevc|aac)\\b")
+    private val isolatedCam = Regex("(^|\\s)cam($|\\s)")
+    private val ambiguousCinemaMarker = Regex("(^|\\s)(ts|tc|scr|wp)($|\\s)")
+    private val diacritics = Regex("\\p{Mn}+")
+    private val separators = Regex("[._\\-\\[\\](){}|/+:]+")
+    private val whitespace = Regex("\\s+")
     const val VERSION = 3
 
     private val explicitAdult = setOf("xxx", "porno", "porn", "pornografico", "pornografica", "hentai", "onlyfans", "playboy", "redlight")
@@ -50,14 +56,11 @@ object ContentClassificationEngine {
     private val adultAnimationSignals = setOf("adult swim", "hentai", "south park", "family guy", "rick and morty", "terror", "horror", "gore", "violencia adulta")
     private val brazilianCategories = setOf("nacional", "nacionais", "cinema nacional", "filmes brasileiros", "series brasileiras", "brasil", "brasilidades", "producao brasileira", "novelas brasileiras")
     private val lowQualityPhrases = setOf("hdcam", "hd cam", "camrip", "cam rip", "telesync", "hdts", "hd ts", "screener", "dvdscr", "dvd scr", "workprint", "line audio", "mic audio", "cinema audio", "audio de cinema", "gravado no cinema")
-    private val releaseContext = Regex("\\b(19|20)\\d{2}\\b|\\b(720p|1080p|2160p|4k|h264|x264|h265|x265|hevc|aac)\\b")
-    private val isolatedCam = Regex("(^|\\s)cam($|\\s)")
-    private val ambiguousCinemaMarker = Regex("(^|\\s)(ts|tc|scr|wp)($|\\s)")
 
     fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .replace(Regex("[._\\-\\[\\](){}|/+:]+"), " ")
-        .replace(Regex("\\s+"), " ")
+        .replace(diacritics, "")
+        .replace(separators, " ")
+        .replace(whitespace, " ")
         .trim()
 
     fun classify(input: ClassificationInput): ContentClassification {
@@ -123,5 +126,5 @@ object ContentClassificationEngine {
     }
 
     private fun String.containsWordOrPhrase(signal: String): Boolean =
-        Regex("(^|\\s)${Regex.escape(signal)}($|\\s)").containsMatchIn(this)
+        (" $this ").contains(" $signal ")
 }
