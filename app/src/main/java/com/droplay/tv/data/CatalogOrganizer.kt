@@ -18,6 +18,7 @@ data class PreparedCatalog(
     val nationalMovies: List<MediaEntry> = emptyList(),
     val nationalSeries: List<MediaEntry> = emptyList(),
     val nationalNovels: List<MediaEntry> = emptyList(),
+    val nationalNews: List<MediaEntry> = emptyList(),
     val categoryIndex: Map<MediaKind, Map<String, List<MediaEntry>>> = emptyMap(),
     val liveSubcategoryIndex: Map<String, Map<String, List<MediaEntry>>> = emptyMap(),
     val homeShelves: List<Pair<String, List<MediaEntry>>> = emptyList(),
@@ -36,7 +37,7 @@ object CatalogOrganizer {
     private val categoryDecorations = Regex("[\\p{So}\\p{Co}\\uFE0F\\u200B\\u200D]")
     private val categoryPrefix = Regex("(?i)^\\s*(filmes?|movies?|series?|séries?|canais?|tv|ao vivo|vod)\\s*[-:|•/]*\\s*")
     private val categoryLanguageSuffix = Regex("(?i)\\s*[-:|•/]*\\s*(legendados?|dublados?)\\s*$")
-    private val categoryNumberSuffix = Regex("[²³⁴⁵⁶⁷⁸⁹]+$")
+    private val categoryNumberSuffix = Regex("(?:[²³⁴⁵⁶⁷⁸⁹]+|\\s+[-|:]?\\s*[2-9])\\s*$")
     private val releaseYear = Regex("(?:19|20)\\d{2}")
     private val diacritics = Regex("\\p{Mn}+")
     const val RECENT = "Últimos adicionados"
@@ -120,7 +121,7 @@ object CatalogOrganizer {
             kidsCartoons = kidsCartoons, kidsLive = kids.filter { it.kind == MediaKind.LIVE },
             nationalMovies = national.filter { it.kind == MediaKind.MOVIE },
             nationalSeries = national.filter { it.kind == MediaKind.SERIES && it.id !in novelIds },
-            nationalNovels = nationalNovels, categoryIndex = categoryIndex, liveSubcategoryIndex = liveSubcategoryIndex,
+            nationalNovels = nationalNovels, nationalNews = live.filter(::isNationalNews), categoryIndex = categoryIndex, liveSubcategoryIndex = liveSubcategoryIndex,
             homeShelves = visible.filter { it.kind != MediaKind.LIVE }.groupBy { categoryByEntry[it].orEmpty() }.entries
                 .sortedByDescending { it.value.size }.take(6).map { it.key to it.value.take(24) },
             recentMovies = recent, releaseMovies = movies.filter { yearOf(it) == currentYear }, releaseSeries = series.filter { yearOf(it) == currentYear },
@@ -168,6 +169,12 @@ object CatalogOrganizer {
         if (item.kind != MediaKind.SERIES) return false
         val text = normalized("${item.group} ${item.name}")
         return text.contains("novela") && listOf("turca", "mexic", "corean", "dorama").none(text::contains)
+    }
+
+    fun isNationalNews(item: MediaEntry): Boolean {
+        if (item.kind != MediaKind.LIVE) return false
+        val text = normalized(item.name).replace(" ", "")
+        return listOf("globonews", "cnn", "sbtnews", "bandnews", "recordnews", "jovempan", "tvbrasil", "agromais").any(text::contains)
     }
 
     fun isSubtitled(item: MediaEntry): Boolean {
@@ -238,6 +245,7 @@ object CatalogOrganizer {
     private fun liveCategory(item: MediaEntry): String {
         val text = normalized("${item.group} ${item.name}")
         return when {
+            isNationalNews(item) -> "Notícias"
             listOf("futebol", "jogos principais", "jogo principal", "payperview", "pay per view", "pay-per-view", "ppv", "premiere", "brasileirao", "libertadores", "champions", "⚽")
                 .any(text::contains) -> FOOTBALL
             listOf("luta", "ufc", "mma", "boxe", "wrestling").any(text::contains) -> "Lutas"

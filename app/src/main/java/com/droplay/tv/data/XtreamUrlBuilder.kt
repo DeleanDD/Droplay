@@ -16,6 +16,7 @@ object XtreamUrlBuilder {
 
     fun forMedia(source: PlaylistSource.Xtream, media: MediaEntry): String {
         val id = media.streamId ?: media.id.substringAfter(':')
+        if (media.id.startsWith("episode:")) return episode(source, id, media.containerExtension ?: "mp4")
         return when (media.kind) {
             MediaKind.LIVE -> live(source, id, media.containerExtension ?: "ts")
             MediaKind.MOVIE -> movie(source, id, media.containerExtension ?: "mp4")

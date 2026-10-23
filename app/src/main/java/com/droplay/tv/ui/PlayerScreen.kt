@@ -32,6 +32,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -62,7 +64,7 @@ import com.droplay.tv.subtitles.*
 import kotlinx.coroutines.delay
 
 private enum class TrackPanel { AUDIO, SUBTITLES }
-private enum class ControlTarget { BACK, ACTIONS }
+private enum class ControlTarget { BACK, ACTIONS, TIMELINE }
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -87,17 +89,18 @@ fun PlayerScreen(
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 1_000, 2_000)
+            .setBufferDurationsMs(10_000, 40_000, 500, 1_500)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(45_000)
-            .setUserAgent("Mozilla/5.0 (Linux; Android TV) AppleWebKit/537.36 DROPLAY/1.2.12")
+            .setUserAgent("Mozilla/5.0 (Linux; Android TV) AppleWebKit/537.36 DROPLAY/${com.droplay.tv.BuildConfig.VERSION_NAME}")
             .setDefaultRequestProperties(mapOf("Accept" to "*/*", "Accept-Encoding" to "identity"))
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         val defaultExtractors = DefaultExtractorsFactory()
-        val extractors = ExtractorsFactory { arrayOf(LenientMp4Extractor(), *defaultExtractors.createExtractors()) }
+        val extractors = ExtractorsFactory { arrayOf(*defaultExtractors.createExtractors(), LenientMp4Extractor()) }
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractors)
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).setMediaSourceFactory(mediaSourceFactory).build().apply {
             setMediaItem(playerMediaItem(media)); prepare()
@@ -123,6 +126,7 @@ fun PlayerScreen(
     val backFocus = remember { FocusRequester() }
     val playPauseFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
+    val timelineFocus = remember { FocusRequester() }
     var requestedFocus by remember { mutableStateOf<ControlTarget?>(null) }
 
     fun retryPlaybackEndpoint(fromStart: Boolean = false): Boolean {
@@ -233,7 +237,7 @@ fun PlayerScreen(
     }
     LaunchedEffect(interaction, playing) {
         delay(4_500)
-        if (playing && !controlFocused && System.currentTimeMillis() - interaction >= 4_400) controls = false
+        if (playing && panel == null && System.currentTimeMillis() - interaction >= 4_400) controls = false
     }
     LaunchedEffect(ghost) { if (ghost != null) { delay(700); ghost = null } }
     LaunchedEffect(Unit) { rootFocus.requestFocus() }
@@ -255,6 +259,7 @@ fun PlayerScreen(
             when (requestedFocus) {
                 ControlTarget.BACK -> backFocus.requestFocus()
                 ControlTarget.ACTIONS -> playPauseFocus.requestFocus()
+                ControlTarget.TIMELINE -> if (duration > 0) timelineFocus.requestFocus() else playPauseFocus.requestFocus()
                 null -> Unit
             }
             requestedFocus = null
@@ -262,13 +267,16 @@ fun PlayerScreen(
     }
 
     Box(
-        Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus).focusable()
+        Modifier.fillMaxSize().background(Color.Black).focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
                 when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> if (controlFocused) false else { seek(-15_000); true }
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlFocused) false else { seek(15_000); true }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
+                    KeyEvent.KEYCODE_DPAD_LEFT -> if (controlFocused) false else { seek(-15_000); requestedFocus = ControlTarget.TIMELINE; true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlFocused) false else { seek(15_000); requestedFocus = ControlTarget.TIMELINE; true }
+                    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { togglePlayback(); true }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> { player.play(); wake(); true }
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> { player.pause(); wake(); true }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER ->
                         if (controlFocused) false else { togglePlayback(); true }
                     KeyEvent.KEYCODE_BACK -> if (controlFocused) {
                         controlFocused = false
@@ -277,13 +285,14 @@ fun PlayerScreen(
                         wake()
                         true
                     } else false
-                    KeyEvent.KEYCODE_DPAD_UP -> { wake(); requestedFocus = ControlTarget.BACK; true }
-                    KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MENU -> { wake(); requestedFocus = ControlTarget.ACTIONS; true }
+                    KeyEvent.KEYCODE_DPAD_UP -> if (controlFocused) false else { wake(); requestedFocus = ControlTarget.TIMELINE; true }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> if (controlFocused) false else { wake(); requestedFocus = ControlTarget.ACTIONS; true }
+                    KeyEvent.KEYCODE_MENU -> { wake(); requestedFocus = ControlTarget.ACTIONS; true }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seek(30_000); true }
                     KeyEvent.KEYCODE_MEDIA_REWIND -> { seek(-30_000); true }
                     else -> false
                 }
-            }
+            }.focusable()
     ) {
         AndroidView(
             factory = {
@@ -313,7 +322,8 @@ fun PlayerScreen(
 
         AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xA8000000), Color.Transparent, Color(0xE8000000))))) {
-                PlayerBackControl(backFocus, { controlFocused = it; if (it) wake() }, onBack)
+                PlayerBackControl(backFocus, { controlFocused = it; if (it) wake() }, onBack,
+                    Modifier.focusProperties { down = if (duration > 0) timelineFocus else playPauseFocus })
                 Column(Modifier.align(Alignment.TopStart).padding(start = 92.dp, top = 30.dp)) {
                     Text(media.name, fontSize = 23.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text(media.group, color = Muted, fontSize = 12.sp)
@@ -321,7 +331,9 @@ fun PlayerScreen(
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 38.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     if (duration > 0) {
                         TvSeekBar(position, duration, { player.seekTo(it); wake() }, ::togglePlayback,
-                            { controlFocused = it; if (it) wake() })
+                            { controlFocused = it; if (it) wake() }, Modifier.focusRequester(timelineFocus).focusProperties {
+                                up = backFocus; down = playPauseFocus; left = FocusRequester.Cancel; right = FocusRequester.Cancel
+                            })
                         Row(Modifier.fillMaxWidth()) {
                             Text(formatTime(position), fontSize = 11.sp)
                             Spacer(Modifier.weight(1f))
@@ -335,15 +347,16 @@ fun PlayerScreen(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         MiniControl(if (playing) R.drawable.ic_player_pause else R.drawable.ic_player_play,
                             if (playing) "Pausar" else "Reproduzir", { controlFocused = it; if (it) wake() },
-                            playPauseFocus, ::togglePlayback)
+                            playPauseFocus, Modifier.focusProperties { up = if (duration > 0) timelineFocus else backFocus; left = FocusRequester.Cancel; down = FocusRequester.Cancel }, ::togglePlayback)
                         Spacer(Modifier.width(10.dp))
                         Text(if (playing) "Reproduzindo" else "Pausado", color = Muted, fontSize = 11.sp)
                         Spacer(Modifier.weight(1f))
-                        MiniControl(if (favorite) R.drawable.ic_player_favorite else R.drawable.ic_player_favorite_border, "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus, onFavorite)
+                        MiniControl(if (favorite) R.drawable.ic_player_favorite else R.drawable.ic_player_favorite_border, "Favorito", { controlFocused = it; if (it) wake() }, favoriteFocus,
+                            Modifier.focusProperties { up = if (duration > 0) timelineFocus else backFocus; down = FocusRequester.Cancel }, onFavorite)
                         Spacer(Modifier.width(8.dp))
-                        MiniControl(R.drawable.ic_player_audio, "Áudio", { controlFocused = it; if (it) wake() }) { panel = TrackPanel.AUDIO; wake() }
+                        MiniControl(R.drawable.ic_player_audio, "Áudio", { controlFocused = it; if (it) wake() }, modifier = Modifier.focusProperties { up = if (duration > 0) timelineFocus else backFocus; down = FocusRequester.Cancel }) { panel = TrackPanel.AUDIO; wake() }
                         Spacer(Modifier.width(8.dp))
-                        MiniControl(R.drawable.ic_player_cc, "Legendas", { controlFocused = it; if (it) wake() }) {
+                        MiniControl(R.drawable.ic_player_cc, "Legendas", { controlFocused = it; if (it) wake() }, modifier = Modifier.focusProperties { up = if (duration > 0) timelineFocus else backFocus; down = FocusRequester.Cancel; right = FocusRequester.Cancel }) {
                             panel = TrackPanel.SUBTITLES
                             if (media.kind != MediaKind.LIVE) subtitleViewModel.search(media)
                             wake()
@@ -377,14 +390,14 @@ fun PlayerScreen(
             retryOpenSubtitles = { subtitleViewModel.search(media, force = true) },
             downloadOpenSubtitle = { subtitleViewModel.download(it, subtitleAppearance.delayMs) },
             changeAppearance = ::saveSubtitleAppearance,
-            onDismiss = { panel = null; controlFocused = false; wake() },
+            onDismiss = { panel = null; controlFocused = false; rootFocus.requestFocus(); wake() },
         )
     }
 }
 
-@Composable private fun PlayerBackControl(requester: FocusRequester, focus: (Boolean) -> Unit, click: () -> Unit) {
+@Composable private fun PlayerBackControl(requester: FocusRequester, focus: (Boolean) -> Unit, click: () -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
-    TextButton(onClick = click, modifier = Modifier.alignForPlayerBack().focusRequester(requester)
+    TextButton(onClick = click, modifier = modifier.alignForPlayerBack().focusRequester(requester)
         .onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .size(48.dp).background(if (focused) Color.White else Color(0x7710152E), CircleShape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
@@ -395,10 +408,10 @@ fun PlayerScreen(
 
 private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp, top = 24.dp)
 
-@Composable private fun MiniControl(@DrawableRes icon: Int, description: String, focus: (Boolean) -> Unit, requester: FocusRequester? = null, click: () -> Unit) {
+@Composable private fun MiniControl(@DrawableRes icon: Int, description: String, focus: (Boolean) -> Unit, requester: FocusRequester? = null, modifier: Modifier = Modifier, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val focusModifier = if (requester != null) Modifier.focusRequester(requester) else Modifier
-    TextButton(onClick = click, modifier = focusModifier.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+    TextButton(onClick = click, modifier = modifier.then(focusModifier).onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .size(42.dp).graphicsLayer { scaleX = if (focused) 1.12f else 1f; scaleY = if (focused) 1.12f else 1f }
         .background(if (focused) Color.White else Color(0x6610152E), CircleShape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x55FFFFFF), CircleShape),
@@ -407,10 +420,10 @@ private fun Modifier.alignForPlayerBack(): Modifier = this.padding(start = 28.dp
     }
 }
 
-@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit, togglePlayback: () -> Unit, focus: (Boolean) -> Unit) {
+@Composable private fun TvSeekBar(position: Long, duration: Long, seek: (Long) -> Unit, togglePlayback: () -> Unit, focus: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     val fraction = (position.toFloat() / duration.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Box(Modifier.fillMaxWidth().height(26.dp).onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
+    Box(modifier.fillMaxWidth().height(26.dp).semantics { contentDescription = "Barra de tempo" }.onFocusChanged { focused = it.isFocused; focus(it.isFocused) }
         .onPreviewKeyEvent { event ->
             if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) false else when (event.nativeKeyEvent.keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> { seek((position - 30_000).coerceAtLeast(0)); true }
@@ -596,6 +609,9 @@ private fun playbackCandidates(media: MediaEntry): List<String> = buildList {
     fun addCandidate(value: String?) { value?.takeIf(String::isNotBlank)?.let { if (it !in this) add(it) } }
     addCandidate(media.url)
     addCandidate(media.playbackFallbackUrl)
+    if (media.kind == MediaKind.LIVE && media.url.substringBefore('?').endsWith(".ts", true)) {
+        addCandidate(media.url.substringBefore('?').dropLast(3) + ".m3u8" + media.url.substringAfter('?', "").let { if (it.isEmpty()) "" else "?$it" })
+    }
     listOf(media.url, media.playbackFallbackUrl).forEach { raw ->
         val value = raw ?: return@forEach
         val query = value.substringAfter('?', "").let { if (it.isBlank()) "" else "?$it" }

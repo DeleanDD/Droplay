@@ -104,7 +104,8 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
             loadingEpisodes = true
             scope.launch {
                 episodes = viewModel.episodes(media.seriesId).map { episode ->
-                    episode.copy(parentTitle = episode.parentTitle ?: media.name, year = episode.year ?: media.year)
+                    episode.copy(parentTitle = episode.parentTitle ?: media.name, year = episode.year ?: media.year,
+                        logo = episode.logo?.takeUnless { it.isBlank() || it == "null" } ?: media.logo)
                 }
                 loadingEpisodes = false
             }
@@ -310,6 +311,7 @@ private fun CatalogScreen(
     val movies = state.preparedCatalog.nationalMovies
     val series = state.preparedCatalog.nationalSeries
     val novels = state.preparedCatalog.nationalNovels
+    val news = state.preparedCatalog.nationalNews
     val highlights = remember(movies) { newestReleases(movies, 3) }
     LazyColumn(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF063D24), Navy))),
         contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
@@ -323,7 +325,8 @@ private fun CatalogScreen(
         if (movies.isNotEmpty()) item { PosterShelf("Filmes brasileiros", movies, state, open, favorite) }
         if (series.isNotEmpty()) item { PosterShelf("Séries brasileiras", series, state, open, favorite) }
         if (novels.isNotEmpty()) item { PosterShelf("Novelas", novels, state, open, favorite) }
-        if (movies.isEmpty() && series.isEmpty() && novels.isEmpty()) item { EmptyMessage("A lista não identificou produções nacionais.") }
+        if (news.isNotEmpty()) item { Column { Text("Notícias nacionais", Modifier.padding(horizontal = 28.dp), fontSize = 24.sp); Box(Modifier.height(360.dp)) { LiveChannelList(news, state.favorites, open, favorite) } } }
+        if (movies.isEmpty() && series.isEmpty() && novels.isEmpty() && news.isEmpty()) item { EmptyMessage("A lista não identificou produções nacionais.") }
     }
 }
 
@@ -457,7 +460,7 @@ private fun CatalogScreen(
         Section.MOVIES -> CatalogOrganizer.RECENT
         Section.SERIES -> CatalogOrganizer.RELEASES
         Section.FAVORITES -> "Filmes"
-        Section.LIVE -> "Favoritos"
+        Section.LIVE -> if (all.any { it.id in state.favorites }) "Favoritos" else "Todos"
         else -> null
     }
     var liveSubcategory by remember(activeCategory) { mutableStateOf<String?>(null) }
@@ -585,14 +588,14 @@ private fun CatalogScreen(
     else MovieDetail(media, state.progress(media.id), media.id in state.favorites, active, onBack, { onPlay(media) }, onFavorite)
 }
 
-@Composable private fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, active: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
+@Composable internal fun MovieDetail(media: MediaEntry, progress: WatchRecord?, favorite: Boolean, active: Boolean, back: () -> Unit, play: () -> Unit, fav: () -> Unit) {
     val backFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
     LaunchedEffect(media.id, active) {
         if (!active) return@LaunchedEffect
         delay(100)
-        backFocus.requestFocus()
+        playFocus.requestFocus()
     }
     Box(Modifier.fillMaxSize().background(Navy)) {
         AsyncImage(media.backdrop ?: media.logo, null, Modifier.align(Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(.7f), contentScale = ContentScale.Crop, alpha = .38f)
@@ -628,26 +631,27 @@ private fun CatalogScreen(
     }
 }
 
-@Composable private fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, active: Boolean, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
+@Composable internal fun SeriesDetail(series: MediaEntry, episodes: List<MediaEntry>, loading: Boolean, state: AppState, active: Boolean, back: () -> Unit, play: (MediaEntry) -> Unit, fav: () -> Unit) {
     val backFocus = remember { FocusRequester() }
     val favoriteFocus = remember { FocusRequester() }
     val continueFocus = remember { FocusRequester() }
     val firstSeasonFocus = remember { FocusRequester() }
     val firstEpisodeFocus = remember { FocusRequester() }
     var screenHasFocus by remember { mutableStateOf(false) }
-    val seasons = episodes.mapNotNull { it.season }.distinct().sorted()
+    val seasons = episodes.map { it.season ?: 1 }.distinct().sorted()
     val lastEpisode = state.history.firstOrNull { it.parentSeriesId == series.seriesId }?.let { h -> episodes.firstOrNull { it.id == h.mediaId } }
     var selectedSeason by remember(seasons, lastEpisode?.season) { mutableIntStateOf(lastEpisode?.season ?: seasons.firstOrNull() ?: 1) }
-    val visible = episodes.filter { it.season == selectedSeason }
-    LaunchedEffect(series.id, active) {
+    val visible = episodes.filter { (it.season ?: 1) == selectedSeason }
+    val startEpisode = lastEpisode ?: episodes.firstOrNull()
+    LaunchedEffect(series.id, active, loading) {
         if (!active) return@LaunchedEffect
         delay(100)
-        backFocus.requestFocus()
+        if (startEpisode != null) continueFocus.requestFocus() else backFocus.requestFocus()
     }
     LaunchedEffect(loading, episodes.isNotEmpty()) {
         if (active && !loading && !screenHasFocus) {
             delay(100)
-            backFocus.requestFocus()
+            if (startEpisode != null) continueFocus.requestFocus() else backFocus.requestFocus()
         }
     }
     Column(Modifier.fillMaxSize().onFocusChanged { screenHasFocus = it.hasFocus }.background(Navy)) {
@@ -659,7 +663,7 @@ private fun CatalogScreen(
                     BackButton(back, Modifier.focusRequester(backFocus).focusProperties {
                         right = favoriteFocus
                         down = when {
-                            lastEpisode != null -> continueFocus
+                            startEpisode != null -> continueFocus
                             seasons.isNotEmpty() -> firstSeasonFocus
                             else -> FocusRequester.Cancel
                         }
@@ -671,7 +675,7 @@ private fun CatalogScreen(
                         right = FocusRequester.Cancel
                         up = FocusRequester.Cancel
                         down = when {
-                            lastEpisode != null -> continueFocus
+                            startEpisode != null -> continueFocus
                             seasons.isNotEmpty() -> firstSeasonFocus
                             else -> FocusRequester.Cancel
                         }
@@ -680,7 +684,7 @@ private fun CatalogScreen(
                 Text(series.name, fontSize = 34.sp, fontWeight = FontWeight.Black)
                 Text(series.description ?: "Escolha uma temporada e um episódio.", color = Color(0xFFD2D6E4), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    lastEpisode?.let { ModernButton("▶  Continuar ${it.name}", { play(it) }, modifier = Modifier
+                    startEpisode?.let { ModernButton(if (lastEpisode != null) "▶  Continuar ${it.name}" else "▶  Assistir", { play(it) }, modifier = Modifier
                         .focusRequester(continueFocus).focusProperties {
                             up = backFocus
                             down = firstSeasonFocus
@@ -698,7 +702,7 @@ private fun CatalogScreen(
                     CategoryTab("Temporada $season", selectedSeason == season, modifier = Modifier
                         .then(if (season == seasons.first()) Modifier.focusRequester(firstSeasonFocus) else Modifier)
                         .focusProperties {
-                            up = if (lastEpisode != null) continueFocus else backFocus
+                            up = if (startEpisode != null) continueFocus else backFocus
                             down = firstEpisodeFocus
                             if (season == seasons.first()) left = FocusRequester.Cancel
                             if (season == seasons.last()) right = FocusRequester.Cancel
@@ -714,20 +718,22 @@ private fun CatalogScreen(
                             right = FocusRequester.Cancel
                             if (episode.id == visible.firstOrNull()?.id) up = firstSeasonFocus
                             if (episode.id == visible.lastOrNull()?.id) down = FocusRequester.Cancel
-                        }) { play(episode) }
+                        }, series.logo) { play(episode) }
                 }
             }
         }
     }
 }
 
-@Composable private fun EpisodeRow(episode: MediaEntry, progress: WatchRecord?, modifier: Modifier = Modifier, play: () -> Unit) {
+@Composable private fun EpisodeRow(episode: MediaEntry, progress: WatchRecord?, modifier: Modifier = Modifier, seriesCover: String? = null, play: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    var imageFailed by remember(episode.id, episode.logo) { mutableStateOf(false) }
     Row(modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(10.dp))
         .background(if (focused) Color(0xFF26305A) else Surface).border(if (focused) 2.dp else 0.dp, Color.White, RoundedCornerShape(10.dp))
         .clickable(onClick = play).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(150.dp, 84.dp).clip(RoundedCornerShape(7.dp)).background(Color(0xFF1A2240))) {
-            episode.logo?.let { AsyncImage(it, episode.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            AsyncImage(if (imageFailed || episode.logo.isNullOrBlank()) seriesCover else episode.logo,
+                episode.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, onError = { imageFailed = true })
             Text("▶", Modifier.align(Alignment.Center), fontSize = 22.sp)
             progress?.takeIf { it.durationMs > 0 }?.let { LinearProgressIndicator(progress = { (it.positionMs.toFloat() / it.durationMs).coerceIn(0f, 1f) }, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(5.dp), color = Coral) }
         }
