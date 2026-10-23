@@ -94,11 +94,14 @@ data class WatchRecord(
     val year: Int? = null,
     val tmdbId: Int? = null,
     val parentTitle: String? = null,
+    val streamId: String? = null,
+    val containerExtension: String? = null,
 ) {
     fun asMediaEntry() = MediaEntry(
         id = mediaId, name = name.ifBlank { "Conteúdo recente" }, url = url,
         kind = kind, group = group, logo = logo, parentSeriesId = parentSeriesId, subtitles = subtitles,
         season = season, episode = episode, year = year, tmdbId = tmdbId, parentTitle = parentTitle,
+        streamId = streamId, containerExtension = containerExtension,
     )
 }
 

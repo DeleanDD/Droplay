@@ -11,7 +11,10 @@ class PlaybackNavigationRegressionTest {
     }
 
     @Test fun numberedCategoryDuplicatesMergeWithoutRemovingSequelNames() {
-        assertEquals("Ação", CatalogOrganizer.cleanCategory("Filmes Ação 2", MediaKind.MOVIE))
+        assertEquals("Terror", CatalogOrganizer.cleanCategory("2 Terror", MediaKind.MOVIE))
+        assertEquals("Copmedia", CatalogOrganizer.cleanCategory("2 Copmedia", MediaKind.MOVIE))
+        assertEquals("Terror", CatalogOrganizer.cleanCategory("Filmes 2 Terror", MediaKind.MOVIE))
+        assertEquals("Ação 2", CatalogOrganizer.cleanCategory("Filmes Ação 2", MediaKind.MOVIE))
         assertEquals("Ação", CatalogOrganizer.cleanCategory("Filmes Ação²", MediaKind.MOVIE))
         assertEquals("2026", CatalogOrganizer.cleanCategory("Filmes 2026", MediaKind.MOVIE))
     }

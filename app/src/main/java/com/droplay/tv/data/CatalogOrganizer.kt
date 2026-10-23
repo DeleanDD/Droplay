@@ -37,7 +37,8 @@ object CatalogOrganizer {
     private val categoryDecorations = Regex("[\\p{So}\\p{Co}\\uFE0F\\u200B\\u200D]")
     private val categoryPrefix = Regex("(?i)^\\s*(filmes?|movies?|series?|séries?|canais?|tv|ao vivo|vod)\\s*[-:|•/]*\\s*")
     private val categoryLanguageSuffix = Regex("(?i)\\s*[-:|•/]*\\s*(legendados?|dublados?)\\s*$")
-    private val categoryNumberSuffix = Regex("(?:[²³⁴⁵⁶⁷⁸⁹]+|\\s+[-|:]?\\s*[2-9])\\s*$")
+    private val categoryNumberSuffix = Regex("[²³⁴⁵⁶⁷⁸⁹]+\\s*$")
+    private val categoryNumberPrefix = Regex("^\\s*2\\s+[-|:]?\\s*(?=\\p{L})")
     private val releaseYear = Regex("(?:19|20)\\d{2}")
     private val diacritics = Regex("\\p{Mn}+")
     const val RECENT = "Últimos adicionados"
@@ -230,7 +231,9 @@ object CatalogOrganizer {
 
     fun cleanCategory(value: String, kind: MediaKind): String {
         var clean = value.replace(categoryDecorations, " ").trim()
+            .replace(categoryNumberPrefix, "")
             .replace(categoryPrefix, "")
+            .replace(categoryNumberPrefix, "")
             .replace(categoryLanguageSuffix, "")
             .replace(categoryNumberSuffix, "")
             .trim(' ', '-', ':', '|', '•', '/')

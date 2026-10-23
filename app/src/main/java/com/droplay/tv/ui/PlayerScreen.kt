@@ -38,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -77,6 +80,8 @@ fun PlayerScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val latestProgress by rememberUpdatedState(onProgress)
     val subtitleViewModel: SubtitleViewModel = viewModel(key = "subtitles-${media.id}")
     val subtitleState by subtitleViewModel.state.collectAsState()
     val subtitleSettings = remember { SubtitleSettings(context) }
@@ -182,7 +187,10 @@ fun PlayerScreen(
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(value: Boolean) { playing = value }
+            override fun onIsPlayingChanged(value: Boolean) {
+                playing = value
+                if (!value) latestProgress(player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0))
+            }
             override fun onPlaybackStateChanged(state: Int) { buffering = state == Player.STATE_BUFFERING }
             override fun onTracksChanged(tracks: Tracks) { tracksRevision++ }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -217,8 +225,21 @@ fun PlayerScreen(
         }
         player.addListener(listener)
         onDispose {
-            onProgress(player.currentPosition, player.duration.coerceAtLeast(0))
+            latestProgress(player.currentPosition, player.duration.coerceAtLeast(0))
             player.removeListener(listener); player.release()
+        }
+    }
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) latestProgress(player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0))
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            delay(10_000)
+            if (player.isPlaying) latestProgress(player.currentPosition.coerceAtLeast(0), player.duration.coerceAtLeast(0))
         }
     }
     LaunchedEffect(player) {

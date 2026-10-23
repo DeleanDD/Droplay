@@ -14,6 +14,16 @@ class CatalogScreenRegressionTest {
     @get:Rule val compose = createComposeRule()
     private val movie = MediaEntry("movie:1", "Missão: Impossível", "", MediaKind.MOVIE, "Ação", year = 2026, addedAt = 100)
 
+    @Test fun xtreamHistoryIncludesInterruptedEpisodesAndCompletedMoviesWithoutUrls() {
+        val episode = WatchRecord("episode:7", 45_000, 300_000, 200,
+            name = "Piloto", parentSeriesId = "s1", containerExtension = "mkv")
+        val completed = WatchRecord(movie.id, 300_000, 300_000, 100, name = movie.name)
+        val state = AppState(source = PlaylistSource.Xtream("https://example.com", "u", "p"), history = listOf(completed, episode))
+        val recent = state.visibleHistory(listOf(movie))
+        org.junit.Assert.assertEquals(listOf("episode:7", movie.id), recent.map { it.id })
+        org.junit.Assert.assertEquals("https://example.com/series/u/p/7.mkv", XtreamUrlBuilder.forMedia(state.source as PlaylistSource.Xtream, recent.first()))
+    }
+
     @Test fun liveStartsWithChannelsWhenFavoritesAreEmpty() {
         val live = movie.copy(id = "live:1", name = "Canal de teste", kind = MediaKind.LIVE)
         val state = AppState(preparedCatalog = CatalogOrganizer.prepare(listOf(live), false, false))

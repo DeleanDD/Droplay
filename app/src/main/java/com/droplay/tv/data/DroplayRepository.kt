@@ -387,6 +387,8 @@ class DroplayRepository(context: Context, database: CatalogDatabase = CatalogDat
                     it.optInt("year", -1).takeIf { value -> value > 0 },
                     it.optInt("tmdbId", -1).takeIf { value -> value > 0 },
                     it.optString("parentTitle").takeIf(String::isNotBlank),
+                    it.optString("streamId").takeIf(String::isNotBlank),
+                    it.optString("extension").takeIf(String::isNotBlank),
                 )
             }
         }
@@ -398,14 +400,15 @@ class DroplayRepository(context: Context, database: CatalogDatabase = CatalogDat
         val persistedUrl = media.url.takeUnless { prefs.getString("source_type", null) == "xtream" }.orEmpty()
         records.add(0, WatchRecord(media.id, positionMs, durationMs, System.currentTimeMillis(), media.name, persistedUrl,
             media.kind, media.group, media.logo, media.parentSeriesId, media.subtitles,
-            media.season, media.episode, media.year, media.tmdbId, media.parentTitle))
+            media.season, media.episode, media.year, media.tmdbId, media.parentTitle, media.streamId, media.containerExtension))
         val json = JSONArray()
         records.take(60).forEach { json.put(JSONObject().put("id", it.mediaId).put("position", it.positionMs)
             .put("duration", it.durationMs).put("at", it.watchedAt).put("name", it.name).put("url", it.url)
             .put("kind", it.kind.name).put("group", it.group).put("logo", it.logo ?: "")
             .put("parentSeriesId", it.parentSeriesId ?: "").put("subtitles", subtitlesToJson(it.subtitles))
             .put("season", it.season ?: -1).put("episode", it.episode ?: -1).put("year", it.year ?: -1)
-            .put("tmdbId", it.tmdbId ?: -1).put("parentTitle", it.parentTitle ?: "")) }
+            .put("tmdbId", it.tmdbId ?: -1).put("parentTitle", it.parentTitle ?: "")
+            .put("streamId", it.streamId ?: "").put("extension", it.containerExtension ?: "")) }
         prefs.edit().putString("history", json.toString()).apply()
     }
     suspend fun mirrorProgress(mediaId: String, positionMs: Long, durationMs: Long) {

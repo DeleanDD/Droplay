@@ -93,7 +93,7 @@ fun DroplayApp(state: AppState, viewModel: DroplayViewModel) {
             return
         }
         val record = state.history.firstOrNull { it.mediaId == media.id }
-        if (record != null && record.positionMs > 10_000 && (record.durationMs <= 0 || record.positionMs < record.durationMs - 30_000)) {
+        if (record != null && record.positionMs >= 2_000 && (record.durationMs <= 0 || record.positionMs < record.durationMs - 30_000)) {
             resumeChoice = media to record
         } else start(media, 0)
     }
@@ -277,7 +277,7 @@ private fun CatalogScreen(
     val live = state.preparedCatalog.live.take(24)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 50.dp), verticalArrangement = Arrangement.spacedBy(25.dp)) {
         if (featured.isNotEmpty()) item { FeaturedCarousel("DROPLAY DESTAQUE  •  LANÇAMENTOS 2026", featured, state, open) }
-        if (recent.isNotEmpty()) item { PosterShelf("Continuar assistindo", recent.take(20), state, open, favorite) }
+        if (recent.isNotEmpty()) item { PosterShelf("Assistidos recentemente", recent.take(20), state, open, favorite) }
         groups.forEach { (name, items) -> item { PosterShelf(name, items.take(24), state, open, favorite) } }
         if (live.isNotEmpty()) item { PosterShelf("Ao vivo", live, state, open, favorite) }
     }
@@ -983,15 +983,16 @@ private fun AppState.progress(id: String) = history.firstOrNull {
     it.mediaId == id && (it.durationMs <= 0 || it.positionMs < it.durationMs - 30_000)
 }
 
-private fun AppState.visibleHistory(visibleCatalog: List<MediaEntry>): List<MediaEntry> {
+internal fun AppState.visibleHistory(visibleCatalog: List<MediaEntry>): List<MediaEntry> {
     val visibleById = visibleCatalog.associateBy(MediaEntry::id)
     val hiddenSeriesIds = catalog.entries.asSequence()
         .filter { it.kind == MediaKind.SERIES && it.id !in visibleById }
         .mapNotNull { it.seriesId }
         .toSet()
-    return history.mapNotNull { record ->
+    return history.sortedByDescending { it.watchedAt }.mapNotNull { record ->
         visibleById[record.mediaId] ?: record.asMediaEntry().takeIf { fallback ->
-            fallback.url.isNotBlank() && record.parentSeriesId !in hiddenSeriesIds &&
+            (fallback.url.isNotBlank() || (source is PlaylistSource.Xtream &&
+                (record.mediaId.startsWith("episode:") || record.mediaId.startsWith("movie:")))) && record.parentSeriesId !in hiddenSeriesIds &&
                 CatalogOrganizer.visibleEntries(listOf(fallback), showAdultContent, showCinemaContent).isNotEmpty()
         }
     }
